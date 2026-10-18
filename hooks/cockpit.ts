@@ -45,7 +45,8 @@ export function parseQuestions(text: string): Questions {
   const endBlock = () => {
     if (block.status !== 'open') return
     open++
-    if (!top) top = toQuestion(block)
+    // A stray status before the first header counts (flow's grep does) but has no id to show or answer.
+    if (!top && block.id) top = toQuestion(block)
   }
   for (const line of text.split('\n')) {
     if (line === '') continue
@@ -96,7 +97,8 @@ export function answerQuestion(text: string, id: string, answer: string): string
   let end = lines.findIndex((l, i) => i > start && HEADER.test(l))
   if (end < 0) end = lines.length
   const inBlock = (i: number) => i > start && i < end
-  const statusAt = lines.findIndex((l, i) => inBlock(i) && l.startsWith('status: '))
+  // The last status line wins, as in parseQuestions and flow's counts.
+  const statusAt = lines.findLastIndex((l, i) => inBlock(i) && l.startsWith('status: '))
   if (statusAt < 0 || lines[statusAt]!.slice('status: '.length).trimEnd() !== 'open') return undefined
   lines[statusAt] = 'status: answered'
   const row = `answer: ${answer.replace(/\s+/g, ' ').trim()}`

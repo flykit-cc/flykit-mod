@@ -13,11 +13,11 @@ const FULL: Cockpit = {
 const text = (segs: { text: string }[]) => segs.map(s => s.text).join(' · ')
 
 test('summary shows every segment in order', () => {
-  expect(text(summary(FULL, 200))).toBe('Build the flykit Claude Code mod in 4 parts · 2/5 tasks · ● 2 agents · ? 1 question · main +3 ↑2')
+  expect(text(summary(FULL, 200))).toBe('Build the flykit Claude Code mod in 4 parts · 2/5 tasks · ● 2 agents · main +3 ↑2')
 })
 
 test('summary cuts the goal to fit and drops it when too narrow', () => {
-  const rest = '2/5 tasks · ● 2 agents · ? 1 question · main +3 ↑2'
+  const rest = '2/5 tasks · ● 2 agents · main +3 ↑2'
   const line = text(summary(FULL, rest.length + 3 + 12))
   expect(line).toBe('Build the f… · ' + rest)
   expect(text(summary(FULL, rest.length + 5))).toBe(rest)
@@ -30,6 +30,10 @@ test('summary leaves out empty parts and colors the rest', () => {
     { text: 'questions.md broken', color: 'red' },
     { text: 'dev' },
   ])
+})
+
+test('open questions without a drawable top still show in the summary', () => {
+  expect(text(summary({ questions: { open: 1 }, agents: [] }, 200))).toBe('? 1 question')
 })
 
 test('detail rows', () => {
@@ -45,11 +49,11 @@ test('detail rows', () => {
 })
 
 test('summary without goal when the detail is open', () => {
-  expect(text(summary(FULL, 200, false))).toBe('2/5 tasks · ● 2 agents · ? 1 question · main +3 ↑2')
+  expect(text(summary(FULL, 200, false))).toBe('2/5 tasks · ● 2 agents · main +3 ↑2')
 })
 
 test('summary goal boundary: 8 columns left keeps the goal, 7 drops it', () => {
-  const rest = '2/5 tasks · ● 2 agents · ? 1 question · main +3 ↑2'
+  const rest = '2/5 tasks · ● 2 agents · main +3 ↑2'
   expect(text(summary(FULL, rest.length + 3 + 8))).toBe('Build t… · ' + rest)
   expect(text(summary(FULL, rest.length + 3 + 7))).toBe(rest)
 })
@@ -60,6 +64,6 @@ test('summary never exceeds the width, even with a long branch', () => {
     const line = text(summary(c, columns))
     if (line.length > columns) throw new Error(`${columns} columns gave ${line.length}: ${line}`)
   }
-  expect(text(summary(c, 40))).toBe('2/5 tasks · ● 2 agents · ? 1 question')
-  expect(text(summary(c, 50))).toBe('2/5 tasks · ● 2 agents · ? 1 question · feature/f…')
+  expect(text(summary(c, 28))).toBe('2/5 tasks · ● 2 agents')
+  expect(text(summary(c, 35))).toBe('2/5 tasks · ● 2 agents · feature/f…')
 })

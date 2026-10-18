@@ -94,8 +94,10 @@ async function answer($: EngineInterface, id: string, o: Option) {
   await refreshCockpit($)
 }
 
-function reply($: EngineInterface, id: string) {
-  void $.prompt.fill({ text: `${id}: ` })
+// Prefixes the draft with the id instead of replacing it, so nothing typed is lost.
+async function reply($: EngineInterface, id: string) {
+  const { text } = await $.prompt.read()
+  await $.prompt.fill({ text: text.startsWith(`${id}:`) ? text : `${id}: ${text}` }).catch(() => undefined)
 }
 
 export const register: Register = on => {
@@ -139,7 +141,7 @@ export const register: Register = on => {
     return (
       <Box flexDirection="column" paddingX={PAD} paddingTop={1}>
         {cockpit && drawCockpit(els, cockpit, columns, isCockpitOpen, toggle)}
-        {top && drawQuestion(els, top, qs!.open, columns, isCockpitOpen, o => void answer($, top.id, o), () => reply($, top.id))}
+        {top && drawQuestion(els, top, qs!.open, columns, isCockpitOpen, o => void answer($, top.id, o), () => void reply($, top.id))}
         {drawMeter(els, view, columns)}
       </Box>
     )

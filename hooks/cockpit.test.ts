@@ -76,6 +76,10 @@ describe('parseQuestions', () => {
     expect(parseQuestions('## Q1\nstatus:  open\n')).toBe('broken')
   })
 
+  test('stray open status before the first header counts but is never the top', () => {
+    expect(parseQuestions('status: open\n\n## Q1\nstatus: open\nasks: real\n')).toEqual({ open: 2, top: { id: 'Q1', asks: 'real', options: [] } })
+  })
+
   test('bare status line is valid but not open, as in flow', () => {
     expect(parseQuestions('## Q1\nstatus:\nasks: x\n')).toEqual({ open: 0, top: undefined })
   })
@@ -157,6 +161,11 @@ describe('answerQuestion', () => {
   test('missing or not-open block gives undefined', () => {
     expect(answerQuestion(FILE, 'Q7', 'A')).toBeUndefined()
     expect(answerQuestion(FILE, 'Q1', 'A')).toBeUndefined()
+  })
+
+  test('the last status line wins, as in parseQuestions and flow', () => {
+    const file = '## Q5\nstatus: backlog\nasks: x\nstatus: open\n'
+    expect(answerQuestion(file, 'Q5', 'A: y')).toBe('## Q5\nstatus: backlog\nasks: x\nstatus: answered\nanswer: A: y\n')
   })
 
   test('Q1 header does not match Q10', () => {

@@ -22,7 +22,8 @@ export function summary(c: Cockpit, columns: number, withGoal = true): Seg[] {
   if (c.agents.length > 0) segs.push({ text: `● ${plural(c.agents.length, 'agent')}`, color: 'green' })
   const q = c.questions
   if (q === 'broken') segs.push({ text: 'questions.md broken', color: 'red' })
-  else if (q && q.open > 0) segs.push({ text: `? ${plural(q.open, 'question')}`, color: 'yellow' })
+  // An open top draws its own question block with "1 of N", so the count would repeat it.
+  else if (q && q.open > 0 && !q.top) segs.push({ text: `? ${plural(q.open, 'question')}`, color: 'yellow' })
   const g = c.git
   if (g) segs.push({ text: g.branch + (g.changed > 0 ? ` +${g.changed}` : '') + (g.ahead > 0 ? ` ↑${g.ahead}` : '') })
 

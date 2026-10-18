@@ -12,7 +12,7 @@ const props = { hasSurvey: false, isWorking: false, maxRows: 10, bodyColumns: 10
 type World = { writes: { path: string; text: string }[]; submits: string[]; fills: string[] }
 
 // files: paths relative to the cwd; fs.write updates them so the next read sees the answer.
-function world(on: On, files: Record<string, string>, denyWrite = false): World {
+function world(on: On, files: Record<string, string>, denyWrite = false, draft = ''): World {
   const w: World = { writes: [], submits: [], fills: [] }
   mock.clock(on, { now: NOW })
   mock.store(on)
@@ -34,6 +34,7 @@ function world(on: On, files: Record<string, string>, denyWrite = false): World 
     w.submits.push(e.text)
     return { text: e.text }
   })
+  on('prompt.read', () => ({ value: { text: draft, cursor: draft.length } }))
   on('prompt.fill', ($, e) => {
     w.fills.push(e.text)
     return { isFilled: true }
@@ -105,6 +106,20 @@ test('reply fills the prompt with the question id', async ($, on) => {
   await ui.press({ key: 'reply' })
   expect(w.fills).toEqual(['Q3: '])
   expect(w.writes.length).toBe(0)
+})
+
+test('reply keeps the draft after the question id', async ($, on) => {
+  const w = world(on, { [Q]: TWO }, false, 'hello')
+  const ui = await mount($)
+  await ui.press({ key: 'reply' })
+  expect(w.fills).toEqual(['Q3: hello'])
+})
+
+test('reply leaves a draft that already names the question', async ($, on) => {
+  const w = world(on, { [Q]: TWO }, false, 'Q3: hello')
+  const ui = await mount($)
+  await ui.press({ key: 'reply' })
+  expect(w.fills).toEqual(['Q3: hello'])
 })
 
 test('a broken questions file draws no question block', async ($, on) => {

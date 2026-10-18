@@ -1,14 +1,14 @@
 import type { Elements, RenderSurface } from 'claude-code'
 
 import type { OpenQuestion, Option } from './cockpit'
-import { cut, HOTKEY } from './cockpit-view'
+import { cut } from './cockpit-view'
 
-export type QButton = { key: string; hotkey: string; label: string; option?: Option } // option undefined = the reply button
+// No hotkey: a bare digit typed into an empty prompt would press it. Click, or ctrl+x tab then Enter.
+export type QButton = { key: string; label: string; option?: Option } // option undefined = the reply button
 
 const INDENT = 2
 const GAP = 3
 const MIN_PER = 12
-const MAX_OPTIONS = 8 // hotkeys 1-9, the reply keeps the last
 const REPLY = '✎ reply'
 const STAR = ' ★'
 
@@ -20,17 +20,16 @@ export function questionHeader(q: OpenQuestion, open: number, columns: number): 
 }
 
 export function questionButtons(q: OpenQuestion, columns: number): QButton[][] {
-  const options = q.options.slice(0, MAX_OPTIONS)
-  const n = options.length + 1
+  const options = q.options
   const room = columns - INDENT
-  const per = Math.floor((room - (HOTKEY + REPLY.length) - GAP * (n - 1) - HOTKEY * n) / options.length)
+  const per = Math.floor((room - REPLY.length - GAP * options.length) / options.length)
   const oneRow = options.length === 0 || per >= MIN_PER
-  const max = oneRow ? per : room - HOTKEY
-  const buttons: QButton[] = options.map((o, i) => {
+  const max = oneRow ? per : room
+  const buttons: QButton[] = options.map(o => {
     const star = o.key === q.recommended ? STAR : ''
-    return { key: `answer-${o.key}`, hotkey: String(i + 1), label: cut(`${o.key} ${o.text}`, max - star.length) + star, option: o }
+    return { key: `answer-${o.key}`, label: cut(`${o.key} ${o.text}`, max - star.length) + star, option: o }
   })
-  buttons.push({ key: 'reply', hotkey: String(n), label: cut(REPLY, room - HOTKEY) })
+  buttons.push({ key: 'reply', label: cut(REPLY, room) })
   return oneRow ? [buttons] : buttons.map(b => [b])
 }
 
@@ -80,7 +79,7 @@ export function drawQuestion(
       {questionButtons(q, columns).map((row, i) => (
         <Box key={`row-${i}`} gap={GAP} paddingLeft={INDENT}>
           {row.map(b => (
-            <Button key={b.key} hotkey={b.hotkey} plain onPress={() => (b.option ? onAnswer(b.option) : onReply())}>
+            <Button key={b.key} plain onPress={() => (b.option ? onAnswer(b.option) : onReply())}>
               {b.label}
             </Button>
           ))}
