@@ -18,6 +18,7 @@ const BAR = 12
 const TAIL = 9
 const CELL = LABEL + BAR + 5 + TAIL // label, bar, " 100%", tail
 const GAP = 3
+const PAD = 2 // matches the status line indent
 
 export function meterCells(view: Extract<MeterView, { kind: 'ready' }>): Cell[] {
   const cells: Cell[] = []
@@ -41,6 +42,11 @@ export function meterCells(view: Extract<MeterView, { kind: 'ready' }>): Cell[] 
 }
 
 export function drawMeter(els: Pick<Elements[RenderSurface], 'Box' | 'Text'>, view: MeterView, columns: number) {
+  const { Box, Text } = els
+  return <Box paddingX={PAD}>{meterBody(els, view, columns - 2 * PAD)}</Box>
+}
+
+function meterBody(els: Pick<Elements[RenderSurface], 'Box' | 'Text'>, view: MeterView, columns: number) {
   const { Box, Text } = els
   if (view.kind === 'no-limits') return <Text dimColor>no plan limits</Text>
   if (view.kind === 'waiting') return <Text dimColor>usage: waiting for first reply</Text>
