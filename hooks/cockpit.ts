@@ -1,5 +1,7 @@
 export type Progress = { goal?: string; open: string[]; done: number }
-export type Questions = { open: number; top?: string } | 'broken'
+export type Option = { key: string; text: string }
+export type OpenQuestion = { id: string; asks: string; context?: string; options: Option[]; recommended?: string }
+export type Questions = { open: number; top?: OpenQuestion } | 'broken'
 export type Git = { branch: string; changed: number; ahead: number }
 export type Agent = { type: string; description: string }
 export type Cockpit = { progress?: Progress; questions?: Questions; git?: Git; agents: Agent[] }
@@ -30,35 +32,85 @@ export function parseProgress(text: string): Progress {
 const KEY = /^(status|issue|asks|context|options|recommendation|answer|applied|retired-because):( |$)/
 const STATUS = /^(open|backlog|answered|assumed|retired)\s*$/
 
+const HEADER = /^## (Q\d+)\s*$/
+
+type Block = { id: string; status: string; fields: Record<string, string> }
+
 export function parseQuestions(text: string): Questions {
   let open = 0
-  let top: string | undefined
-  let status = ''
-  let asks: string | undefined
+  let top: OpenQuestion | undefined
+  // Lines before any header still count, as flow's `grep -c '^status: open'` does.
+  let block: Block = { id: '', status: '', fields: {} }
+  let field: string | undefined
   const endBlock = () => {
-    if (status !== 'open') return
+    if (block.status !== 'open') return
     open++
-    if (top === undefined) top = asks
+    if (!top) top = toQuestion(block)
   }
   for (const line of text.split('\n')) {
-    if (line === '' || line.startsWith('  ')) continue
-    if (/^## Q\d+\s*$/.test(line)) {
-      endBlock()
-      status = ''
-      asks = undefined
+    if (line === '') continue
+    if (line.startsWith('  ')) {
+      if (field) block.fields[field] += ' ' + line.trim()
       continue
     }
-    if (!KEY.test(line)) return 'broken'
+    const header = HEADER.exec(line)
+    if (header) {
+      endBlock()
+      block = { id: header[1]!, status: '', fields: {} }
+      field = undefined
+      continue
+    }
+    const key = KEY.exec(line)
+    if (!key) return 'broken'
     // Flow checks the raw tail after "status: " (so "status:  open" is broken) and skips a bare "status:".
     if (line.startsWith('status: ')) {
       const value = line.slice('status: '.length)
       if (!STATUS.test(value)) return 'broken'
-      status = value.trimEnd()
+      block.status = value.trimEnd()
     }
-    if (line.startsWith('asks:')) asks = line.slice('asks:'.length).trim()
+    field = key[1]!
+    block.fields[field] = line.slice(field.length + 1).trim()
   }
   endBlock()
   return { open, top }
+}
+
+function toQuestion(b: Block): OpenQuestion {
+  const options = (b.fields.options ?? '')
+    .split(/;\s*(?=[A-Z]: )/)
+    .map(part => /^([A-Z]): (.*)$/.exec(part.trim()))
+    .filter((m): m is RegExpExecArray => m !== null)
+    .map(m => ({ key: m[1]!, text: m[2]!.replace(/;\s*$/, '').trim() }))
+  const rec = /^([A-Z])(?=[,:\s]|$)/.exec(b.fields.recommendation ?? '')?.[1]
+  const q: OpenQuestion = { id: b.id, asks: b.fields.asks ?? '', options }
+  if (b.fields.context) q.context = b.fields.context
+  if (rec && options.some(o => o.key === rec)) q.recommended = rec
+  return q
+}
+
+// Marks block `id` answered with a one-line `answer:`; undefined when the block is gone or not open.
+export function answerQuestion(text: string, id: string, answer: string): string | undefined {
+  const lines = text.split('\n')
+  const start = lines.findIndex(l => HEADER.exec(l)?.[1] === id)
+  if (start < 0) return undefined
+  let end = lines.findIndex((l, i) => i > start && HEADER.test(l))
+  if (end < 0) end = lines.length
+  const inBlock = (i: number) => i > start && i < end
+  const statusAt = lines.findIndex((l, i) => inBlock(i) && l.startsWith('status: '))
+  if (statusAt < 0 || lines[statusAt]!.slice('status: '.length).trimEnd() !== 'open') return undefined
+  lines[statusAt] = 'status: answered'
+  const row = `answer: ${answer.replace(/\s+/g, ' ').trim()}`
+  const answerAt = lines.findIndex((l, i) => inBlock(i) && /^answer:( |$)/.test(l))
+  if (answerAt >= 0) {
+    let stop = answerAt + 1
+    while (stop < end && lines[stop]!.startsWith('  ')) stop++
+    lines.splice(answerAt, stop - answerAt, row)
+  } else {
+    let at = end
+    while (at > start + 1 && lines[at - 1] === '') at--
+    lines.splice(at, 0, row)
+  }
+  return lines.join('\n')
 }
 
 // `git status --porcelain=v1 --branch`: first line "## <branch>[...<upstream>] [ahead N, behind M]".

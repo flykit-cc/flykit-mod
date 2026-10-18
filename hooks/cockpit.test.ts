@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'claude-code/testing'
 
-import { parseGitStatus, parseProgress, parseQuestions } from './cockpit'
+import { answerQuestion, parseGitStatus, parseProgress, parseQuestions } from './cockpit'
 
 describe('parseProgress', () => {
   test('reads goal and tasks under "## Open tasks" (this repo shape)', () => {
@@ -54,7 +54,10 @@ describe('parseQuestions', () => {
       'status: open',
       'asks: Second open one',
     ].join('\n')
-    expect(parseQuestions(text)).toEqual({ open: 2, top: 'Which key opens the cockpit?' })
+    expect(parseQuestions(text)).toEqual({
+      open: 2,
+      top: { id: 'Q2', asks: 'Which key opens the cockpit?', context: 'first line second line, indented', options: [] },
+    })
   })
 
   test('empty file has nothing open', () => {
@@ -75,6 +78,90 @@ describe('parseQuestions', () => {
 
   test('bare status line is valid but not open, as in flow', () => {
     expect(parseQuestions('## Q1\nstatus:\nasks: x\n')).toEqual({ open: 0, top: undefined })
+  })
+})
+
+describe('parseQuestions: full open question', () => {
+  const FILE = [
+    '## Q1',
+    'status: answered',
+    'asks: old',
+    '',
+    '## Q3',
+    'status: open',
+    'issue: -',
+    'asks: Which key opens the cockpit?',
+    'context: The band has a summary line.',
+    '  It opens a detail view.',
+    'options: A: c, short and free; B: k,',
+    '  less obvious',
+    'recommendation: A, nothing else uses c',
+    '',
+    '## Q4',
+    'status: open',
+    'asks: Second one',
+  ].join('\n')
+
+  test('first open block, joined continuation lines, options, recommendation', () => {
+    expect(parseQuestions(FILE)).toEqual({
+      open: 2,
+      top: {
+        id: 'Q3',
+        asks: 'Which key opens the cockpit?',
+        context: 'The band has a summary line. It opens a detail view.',
+        options: [{ key: 'A', text: 'c, short and free' }, { key: 'B', text: 'k, less obvious' }],
+        recommended: 'A',
+      },
+    })
+  })
+
+  test('no options, no recommendation', () => {
+    expect(parseQuestions('## Q2\nstatus: open\nasks: Free text?\n')).toEqual({ open: 1, top: { id: 'Q2', asks: 'Free text?', options: [] } })
+  })
+
+  test('recommendation that names no option is ignored', () => {
+    const q = parseQuestions('## Q2\nstatus: open\nasks: x\noptions: A: one; B: two\nrecommendation: none yet - needs talk\n')
+    expect(q !== 'broken' && q.top?.recommended).toBeUndefined()
+  })
+
+  test('trailing semicolon is not part of the option text', () => {
+    const q = parseQuestions('## Q2\nstatus: open\nasks: x\noptions: A: one; B: two;\n')
+    expect(q !== 'broken' && q.top?.options).toEqual([{ key: 'A', text: 'one' }, { key: 'B', text: 'two' }])
+  })
+})
+
+describe('answerQuestion', () => {
+  const FILE = '## Q1\nstatus: answered\nasks: old\nanswer: yes\n\n## Q3\nstatus: open\nasks: Which key?\noptions: A: c; B: k\n\n## Q4\nstatus: open\nasks: next\n'
+
+  test('marks the block answered and adds an answer line at its end', () => {
+    expect(answerQuestion(FILE, 'Q3', 'A: c (flykit band)')).toBe(
+      '## Q1\nstatus: answered\nasks: old\nanswer: yes\n\n## Q3\nstatus: answered\nasks: Which key?\noptions: A: c; B: k\nanswer: A: c (flykit band)\n\n## Q4\nstatus: open\nasks: next\n',
+    )
+  })
+
+  test('replaces an existing answer and its continuation lines', () => {
+    const file = '## Q3\nstatus: open\nasks: x\nanswer: draft\n  more draft\napplied:\n'
+    expect(answerQuestion(file, 'Q3', 'B: k')).toBe('## Q3\nstatus: answered\nasks: x\nanswer: B: k\napplied:\n')
+  })
+
+  test('last block in a file without trailing newline', () => {
+    expect(answerQuestion('## Q9\nstatus: open\nasks: x', 'Q9', 'A: y')).toBe('## Q9\nstatus: answered\nasks: x\nanswer: A: y')
+  })
+
+  test('newlines in the answer become spaces, so the file stays valid', () => {
+    const out = answerQuestion('## Q9\nstatus: open\nasks: x\n', 'Q9', 'one\ntwo')!
+    expect(out).toContain('answer: one two')
+    expect(parseQuestions(out)).toEqual({ open: 0, top: undefined })
+  })
+
+  test('missing or not-open block gives undefined', () => {
+    expect(answerQuestion(FILE, 'Q7', 'A')).toBeUndefined()
+    expect(answerQuestion(FILE, 'Q1', 'A')).toBeUndefined()
+  })
+
+  test('Q1 header does not match Q10', () => {
+    const file = '## Q10\nstatus: open\nasks: ten\n'
+    expect(answerQuestion(file, 'Q1', 'A')).toBeUndefined()
   })
 })
 

@@ -5,7 +5,7 @@ import { detailRows, summary } from './cockpit-view'
 
 const FULL: Cockpit = {
   progress: { goal: 'Build the flykit Claude Code mod in 4 parts', open: ['write spec', 'build band', 'test live'], done: 2 },
-  questions: { open: 1, top: 'Which key opens the cockpit?' },
+  questions: { open: 1, top: { id: 'Q1', asks: 'Which key opens the cockpit?', options: [] } },
   git: { branch: 'main', changed: 3, ahead: 2 },
   agents: [{ type: 'Explore', description: 'map hooks' }, { type: 'flow:reviewer', description: 'check diff' }],
 }

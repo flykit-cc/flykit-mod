@@ -54,7 +54,7 @@ export function detailRows(c: Cockpit): Row[] {
   for (const a of c.agents) rows.push({ label: 'agent', text: `● ${a.type} · ${a.description}`, color: 'green' })
   const q = c.questions
   if (q === 'broken') rows.push({ label: 'ask', text: 'questions.md broken', color: 'red' })
-  else if (q?.top) rows.push({ label: 'ask', text: `? ${q.top}`, color: 'yellow' })
+  else if (q?.top) rows.push({ label: 'ask', text: `? ${q.top.asks}`, color: 'yellow' })
   const g = c.git
   if (g) rows.push({ label: 'git', text: `${g.branch} · ${g.changed} changed · ${g.ahead} unpushed` })
   return rows
