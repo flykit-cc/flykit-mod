@@ -20,10 +20,12 @@ const DOTS: Record<string, { dot: string; color?: string }> = {
 
 export function peerRows(peers: Peer[], columns: number): PeerRow[] {
   const width = Math.min(MAX_NAME, Math.max(0, ...peers.map(p => p.name.length)))
-  return peers.map(p => {
+  return peers.map((p, i) => {
     const tail = p.goal ? `goal: ${p.goal}` : p.project
     const text = [cut(p.name, width).padEnd(width), p.status.padEnd(STATUS), tail].join(GAP)
-    return { key: `peer-${p.name}`, ...(DOTS[p.status] ?? { dot: '◌' }), text: cut(text, columns - DOT) }
+    // Duplicate names need distinct keys; the first keeps `peer-<name>`.
+    const key = peers.findIndex(q => q.name === p.name) === i ? `peer-${p.name}` : `peer-${p.name}-${i}`
+    return { key, ...(DOTS[p.status] ?? { dot: '◌' }), text: cut(text, columns - DOT) }
   })
 }
 

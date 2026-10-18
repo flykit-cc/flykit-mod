@@ -9,7 +9,7 @@ const USER = { origin: { kind: 'composer' }, wait: false } as const
 
 const entry = (sessionId: string, name: string, pid: number, cwd: string, status: string) => JSON.stringify({ sessionId, name, pid, cwd, status, kind: 'interactive' })
 
-type World = { files: Record<string, string>; reads: string[]; runs: string[][]; sends: { to: unknown; text: string }[]; fills: string[] }
+type World = { files: Record<string, string>; reads: string[]; runs: string[][]; sends: { to: unknown; text: string }[]; fills: string[]; isFilled: boolean; readFails: boolean }
 
 // The engine hands a hook `{ sessionId }` already spelled as the id string.
 // Registry: api (pid 1, live), web (pid 2, dead), this session (pid 3, live), and a secret .key file.
@@ -28,6 +28,8 @@ function world(on: On, send: 'ok' | 'undelivered' | 'throws' = 'ok', draft = '',
     runs: [],
     sends: [],
     fills: [],
+    isFilled: true,
+    readFails: false,
   }
   mock.clock(on, { now: NOW })
   mock.store(on)
@@ -43,7 +45,7 @@ function world(on: On, send: 'ok' | 'undelivered' | 'throws' = 'ok', draft = '',
   })
   on('process.run', ($, e) => {
     w.runs.push([...e.argv])
-    return { value: { exitCode: 0, stdout: e.argv[0] === 'ps' ? '1\n3\n' : '## main\n', stderr: '' } as never }
+    return { value: { exitCode: 0, stdout: e.argv[0] === 'ps' ? '    1 claude\n    3 /usr/local/bin/claude\n    9 zsh\n' : '## main\n', stderr: '' } as never }
   })
   on('agent.list', () => ({ value: [] as never }))
   on('session.send', ($, e) => {
@@ -53,10 +55,14 @@ function world(on: On, send: 'ok' | 'undelivered' | 'throws' = 'ok', draft = '',
     return send === 'undelivered' ? { isDelivered: false as const, reason: 'socket gone' } : { isDelivered: true as const }
   })
   on('prompt.submit', ($, e) => ({ text: e.text }))
-  on('prompt.read', () => ({ value: { text: draft, cursor: draft.length } }))
+  on('prompt.read', () => {
+    // A throwing hook is skipped; nothing beneath answers, so $.prompt.read rejects.
+    if (w.readFails) throw new Error('no box')
+    return { value: { text: draft, cursor: draft.length } }
+  })
   on('prompt.fill', ($, e) => {
     w.fills.push(e.text)
-    return { isFilled: true }
+    return { isFilled: w.isFilled }
   })
   return w
 }
@@ -175,4 +181,72 @@ test("another plugin's @name prompt passes through", async ($, on) => {
   const r = await $.prompt.submit({ text: '@api x', origin: { kind: 'plugin', name: 'other' }, wait: false })
   expect(w.sends.length).toBe(0)
   expect(r.drop).toBeUndefined()
+})
+
+test('a registry entry whose pid now runs another program is not a peer', async ($, on) => {
+  const w = world(on, 'ok', '', { [`${DIR}/9.json`]: entry('s9', 'ghost', 9, '/w/ghost', 'idle') })
+  const ui = await mount($)
+  await ui.press({ key: 'cockpit' })
+  expect(await ui.find({ key: 'peer-ghost' })).toBeUndefined()
+  expect(w.runs).toContainEqual(['ps', '-o', 'pid=,comm=', '-p', '1,2,9'])
+})
+
+test('two live sessions with the same name: nothing sent, text put back', async ($, on) => {
+  const w = world(on, 'ok', '', { [`${DIR}/6.json`]: entry('s6', 'api', 1, '/w/api6', 'idle') })
+  const ui = await mount($)
+  const r = await $.prompt.submit({ text: '@api run the tests', ...USER })
+  expect(w.sends.length).toBe(0)
+  expect(r.drop).toBe('✗ not sent: 2 sessions named api')
+  expect(w.fills).toEqual(['@api run the tests'])
+  await ui.press({ key: 'cockpit' })
+  expect(await ui.find({ key: 'peer-api' })).toBeDefined()
+  expect(await ui.find({ key: 'peer-api-1' })).toBeDefined()
+})
+
+test('with both fix and fix login live, the longest name wins and the short one still routes', async ($, on) => {
+  const w = world(on, 'ok', '', {
+    [`${DIR}/7.json`]: entry('s7', 'fix', 1, '/w/fix', 'idle'),
+    [`${DIR}/8.json`]: entry('s8', 'fix login', 1, '/w/login', 'idle'),
+  })
+  await mount($)
+  await $.prompt.submit({ text: '@fix login x', ...USER })
+  await $.prompt.submit({ text: '@fix x', ...USER })
+  expect(w.sends).toEqual([
+    { to: 's8', text: 'x' },
+    { to: 's7', text: 'x' },
+  ])
+})
+
+test('a prompt with images is not sent to a peer; the text is put back', async ($, on) => {
+  const w = world(on)
+  await mount($)
+  const r = await $.prompt.submit({ text: '@api look at this', ...USER, attachments: [{ type: 'image', mediaType: 'image/png', id: 'img1' }] } as never)
+  expect(w.sends.length).toBe(0)
+  expect(r.drop).toBe("✗ not sent to api: images can't be forwarded")
+  expect(w.fills).toEqual(['@api look at this'])
+})
+
+test('when the prompt cannot take the text back, the drop shows it', async ($, on) => {
+  const w = world(on, 'undelivered')
+  w.isFilled = false
+  await mount($)
+  const r = await $.prompt.submit({ text: '@api run the tests', ...USER })
+  expect(r.drop).toBe('✗ not sent to api: socket gone (text not restored: @api run the tests)')
+})
+
+test('pressing a second peer swaps the tag instead of stacking it', async ($, on) => {
+  const w = world(on, 'ok', '@api hello', { [`${DIR}/4.json`]: entry('s4', 'fix login', 1, '/w/login', 'idle') })
+  const ui = await mount($)
+  await ui.press({ key: 'cockpit' })
+  await ui.press({ key: 'peer-fix login' })
+  expect(w.fills).toEqual(['@fix login hello'])
+})
+
+test('a draft that fails to read does not stop a peer press', async ($, on) => {
+  const w = world(on)
+  w.readFails = true
+  const ui = await mount($)
+  await ui.press({ key: 'cockpit' })
+  await ui.press({ key: 'peer-api' })
+  expect(w.fills).toEqual(['@api '])
 })

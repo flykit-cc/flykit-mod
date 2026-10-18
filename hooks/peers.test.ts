@@ -13,13 +13,24 @@ describe('parseSession', () => {
     expect(parseSession(JSON.stringify({ pid: '1', sessionId: 'a', name: 'n' }))).toBeUndefined()
     expect(parseSession(JSON.stringify({ pid: 1, name: 'n' }))).toBeUndefined()
   })
+  test('a blank name is rejected', () => {
+    for (const name of ['', '   ']) expect(parseSession(JSON.stringify({ pid: 1, sessionId: 'a', name }))).toBeUndefined()
+  })
   test('a pid ps cannot take is rejected', () => {
     for (const pid of [0, -1, 1.5]) expect(parseSession(JSON.stringify({ pid, sessionId: 'a', name: 'n' }))).toBeUndefined()
   })
 })
 
-test('livePids', () => {
-  expect([...livePids('  7715\n39051\n\n garbage\n')]).toEqual([7715, 39051])
+describe('livePids', () => {
+  test('keeps claude pids, by command basename', () => {
+    expect([...livePids('  7715 claude\n39051   /usr/local/bin/claude\n\n garbage\n')]).toEqual([7715, 39051])
+  })
+  test('a reused pid running something else is not live', () => {
+    expect([...livePids('7715 zsh\n39051 /bin/claudex\n4 claude\n')]).toEqual([4])
+  })
+  test('a bare pid without a command is not live', () => {
+    expect([...livePids('7715\n')]).toEqual([])
+  })
 })
 
 test('projectOf', () => {

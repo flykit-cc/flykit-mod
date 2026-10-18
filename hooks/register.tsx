@@ -63,7 +63,7 @@ async function readPeers($: EngineInterface, now: number): Promise<Peer[]> {
     const texts = await Promise.all(names.map(n => readText($, `${dir}/${n}`)))
     const entries = texts.map(t => (t === undefined ? undefined : parseSession(t))).filter((e): e is SessionEntry => e !== undefined && e.id !== me)
     if (entries.length === 0) return []
-    const ps = await $.process.run(['ps', '-o', 'pid=', '-p', entries.map(e => e.pid).join(',')], { timeoutMs: 3000 })
+    const ps = await $.process.run(['ps', '-o', 'pid=,comm=', '-p', entries.map(e => e.pid).join(',')], { timeoutMs: 3000 })
     const live = livePids(ps.stdout)
     const alive = entries.filter(e => live.has(e.pid))
     const { statuses, memory } = track(alive, peerMemory, now)
@@ -125,21 +125,25 @@ async function answer($: EngineInterface, id: string, o: Option) {
 
 // Prefixes the draft with the id instead of replacing it, so nothing typed is lost.
 async function reply($: EngineInterface, id: string) {
-  const { text } = await $.prompt.read()
+  const text = await readDraft($)
   await $.prompt.fill({ text: text.startsWith(`${id}:`) ? text : `${id}: ${text}` }).catch(() => undefined)
 }
 
-// Puts @name in front of the draft, so nothing typed is lost.
+const readDraft = ($: EngineInterface) => $.prompt.read().then(d => d.text, () => '')
+
+// Puts @name in front of the draft, swapping out another peer's tag, so nothing typed is lost.
 async function pickPeer($: EngineInterface, p: Peer) {
-  const { text } = await $.prompt.read()
-  const tag = `@${p.name} `
-  await $.prompt.fill({ text: text.startsWith(tag) ? text : tag + text.trimStart() }).catch(() => undefined)
+  const text = await readDraft($)
+  const old = (cockpit?.peers ?? []).map(q => `@${q.name} `).filter(t => text.startsWith(t)).sort((a, b) => b.length - a.length)[0] ?? ''
+  await $.prompt.fill({ text: `@${p.name} ` + text.slice(old.length).trimStart() }).catch(() => undefined)
 }
 
 // Puts an unsent message back without losing a draft typed meanwhile.
-async function restore($: EngineInterface, original: string) {
-  const draft = await $.prompt.read().then(d => d.text, () => '')
-  await $.prompt.fill({ text: draft ? `${original} ${draft}` : original }).catch(() => undefined)
+// Returns a note for the drop when the box refused it (a dialog open), so the words still show.
+async function restore($: EngineInterface, original: string): Promise<string> {
+  const draft = await readDraft($)
+  const isFilled = await $.prompt.fill({ text: draft ? `${original} ${draft}` : original }).then(r => r.isFilled, () => false)
+  return isFilled ? '' : ` (text not restored: ${original})`
 }
 
 // Ghostty's own command starts the ghostcode picker in the new window.
@@ -173,16 +177,22 @@ export const register: Register = on => {
   on('prompt.submit', async ($, e, next) => {
     if (e.command || (e.origin && e.origin.kind !== 'composer') || !e.text.startsWith('@')) return next(e)
     const peers = await readPeers($, await $.clock.now())
-    const peer = peers.filter(p => e.text.startsWith('@' + p.name) && /\s/.test(e.text.charAt(p.name.length + 1))).sort((a, b) => b.name.length - a.name.length)[0]
+    const named = peers.filter(p => e.text.startsWith('@' + p.name) && /\s/.test(e.text.charAt(p.name.length + 1)))
+    const longest = Math.max(0, ...named.map(p => p.name.length))
+    const matches = named.filter(p => p.name.length === longest)
+    const peer = matches[0]
     const text = peer && e.text.slice(peer.name.length + 1).trim()
     if (!peer || !text) return next(e)
+    const refuse = async (why: string) => ({ drop: why + (await restore($, e.text)) })
+    const ids = new Set(matches.map(p => p.id)).size
+    if (ids > 1) return refuse(`✗ not sent: ${ids} sessions named ${peer.name}`)
+    if (e.attachments?.length) return refuse(`✗ not sent to ${peer.name}: images can't be forwarded`)
     const reason = await $.session.send({ to: { sessionId: peer.id }, text }).then(
       r => (r.isDelivered ? undefined : r.reason),
       (err: unknown) => (err instanceof Error ? err.message : String(err)),
     )
     if (reason === undefined) return { drop: `✓ sent to ${peer.name}` }
-    await restore($, e.text)
-    return { drop: `✗ not sent to ${peer.name}: ${reason}` }
+    return refuse(`✗ not sent to ${peer.name}: ${reason}`)
   })
 
   on('command.run', { command: 'flykit' }, async $ => {

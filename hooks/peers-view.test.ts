@@ -21,3 +21,8 @@ test('rows: dot, padded name, status, goal or project', () => {
 test('rows fit a narrow width', () => {
   for (const r of peerRows(P, 30)) expect(2 + r.text.length).toBeLessThanOrEqual(30)
 })
+
+test('a repeated name gets a unique key; the first keeps peer-<name>', () => {
+  const two = [P[0]!, { ...P[1]!, name: 'score-c2' }, P[2]!, { ...P[3]!, name: 'score-c2' }]
+  expect(peerRows(two, 80).map(r => r.key)).toEqual(['peer-score-c2', 'peer-score-c2-1', 'peer-legacytradesgroup-ef', 'peer-score-c2-3'])
+})

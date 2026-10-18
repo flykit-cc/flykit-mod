@@ -19,7 +19,8 @@ export function parseSession(text: string): SessionEntry | undefined {
   if (!raw || typeof raw !== 'object') return undefined
   const { sessionId, name, pid, cwd, status } = raw as Record<string, unknown>
   // A bad pid would make the one `ps -p` call fail and hide every peer.
-  if (typeof sessionId !== 'string' || typeof name !== 'string' || typeof pid !== 'number' || !Number.isInteger(pid) || pid <= 0) return undefined
+  // A blank name would make `@ text` route to it.
+  if (typeof sessionId !== 'string' || typeof name !== 'string' || !name.trim() || typeof pid !== 'number' || !Number.isInteger(pid) || pid <= 0) return undefined
   return {
     id: sessionId,
     name,
@@ -29,8 +30,15 @@ export function parseSession(text: string): SessionEntry | undefined {
   }
 }
 
+// `ps -o pid=,comm=` lines. Only claude processes count: a crashed session's pid may now run something else.
 export const livePids = (psStdout: string): Set<number> =>
-  new Set(psStdout.split('\n').map(l => l.trim()).filter(l => /^\d+$/.test(l)).map(Number))
+  new Set(
+    psStdout
+      .split('\n')
+      .map(l => /^\s*(\d+)\s+(.+?)\s*$/.exec(l))
+      .filter(m => m !== null && m[2]!.split('/').pop() === 'claude')
+      .map(m => Number(m![1])),
+  )
 
 export const projectOf = (cwd: string): string => cwd.split('/').filter(Boolean).pop() ?? '?'
 
