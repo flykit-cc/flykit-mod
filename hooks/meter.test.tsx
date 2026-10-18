@@ -1,6 +1,8 @@
 import type { SessionRateLimit, SessionUsage } from 'claude-code'
 import { expect, mock, test } from 'claude-code/testing'
 
+import { fitLines } from './meter'
+
 const NOW = Date.UTC(2026, 9, 21, 21) // Wed 21:00 UTC
 const RESET = '2026-10-24T09:00:00Z' // next Sat 09:00 UTC
 const SURFACES = ['terminal', 'desktop'] as const
@@ -29,8 +31,8 @@ for (const surface of SURFACES) {
     await $.session.measure({ ...usage(limits), changed: ['rateLimits'] })
     const ui = await $.ui.mount({ plugin: 'flykit', surface, component: 'AbovePrompt', props })
 
-    // Wed 21:00 is 4.5 days into the week: pace 64.3%, used 60% → -4.3.
-    expect((await ui.find({ text: '-4.3' }))).toBeDefined()
+    // Wed 21:00 is 4.5 days into the week: pace 64.3%, used 60% → 4.3 under.
+    expect((await ui.find({ text: '4.3 under' }))).toBeDefined()
     expect((await ui.find({ text: 'today' }))).toBeDefined()
     expect((await ui.find({ text: '2h10' }))).toBeDefined()
     expect((await ui.find({ text: 'fable' }))).toBeDefined()
@@ -69,4 +71,12 @@ test('/flykit hides the band and shows it again', async ($, on) => {
   expect(await ui.find({ text: 'engine band' })).toBeDefined()
   await $.command.run({ command: 'flykit', args: '' } as never)
   expect(await ui.find({ text: 'week' })).toBeDefined()
+})
+
+test('band stretches to one line when wide, splits when narrow', () => {
+  const cell = (key: string, tail: string) => ({ key, label: key, percent: 10, tail })
+  const cells = [cell('week', '4.3 under'), cell('today', 'of 13.3%'), cell('5h', '2h10'), cell('fable', '5d14h')]
+  expect(fitLines(cells, 160).lines.length).toBe(1)
+  expect(fitLines(cells, 100).lines.length).toBe(2)
+  expect(fitLines(cells, 20).bar).toBe(6)
 })
