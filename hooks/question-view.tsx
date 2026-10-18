@@ -63,12 +63,12 @@ export function drawQuestion(
   onReply: () => void,
 ) {
   const { Box, Text, Button } = els
-  const h = questionHeader(q, open, columns)
+  const head = questionHeader(q, open, columns)
   return (
     <Box flexDirection="column">
       <Box width={columns} justifyContent="space-between">
-        <Text color="yellow">{h.text}</Text>
-        {h.count && <Text dimColor>{h.count}</Text>}
+        <Text color="yellow">{head.text}</Text>
+        {head.count && <Text dimColor>{head.count}</Text>}
       </Box>
       {showContext &&
         q.context &&

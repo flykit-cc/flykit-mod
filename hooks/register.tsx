@@ -1,13 +1,15 @@
 import type { EngineInterface, Register } from 'claude-code'
 
-import { parseGitStatus, parseProgress, parseQuestions, type Cockpit } from './cockpit'
+import { answerQuestion, parseGitStatus, parseProgress, parseQuestions, type Cockpit, type Option } from './cockpit'
 import { drawCockpit } from './cockpit-view'
+import { drawQuestion } from './question-view'
 import { drawMeter, type FiveHourRow, type MeterView, type WeekRow } from './meter'
 import { parseModelCache, rollDay, weekMeter, type DayState } from './usage'
 
 const CACHE = '/.config/ghostcode/.slcache/usage.json'
 const PAD = 2 // matches the status line indent
 const ACTIVE = new Set(['pending', 'running', 'waiting'])
+const QUESTIONS = '.flow/questions.md'
 
 // Last computed views; the band draws them.
 let view: MeterView = { kind: 'waiting' }
@@ -50,7 +52,7 @@ async function readText($: EngineInterface, path: string): Promise<string | unde
 
 // No .flow files → undefined: the band shows the meter alone.
 async function readCockpit($: EngineInterface): Promise<Cockpit | undefined> {
-  const [progress, questions] = await Promise.all([readText($, '.flow/session-progress.md'), readText($, '.flow/questions.md')])
+  const [progress, questions] = await Promise.all([readText($, '.flow/session-progress.md'), readText($, QUESTIONS)])
   if (progress === undefined && questions === undefined) return undefined
   // --no-optional-locks: never take .git/index.lock, so a user's git add/commit can't collide with this poll.
   const [git, agents] = await Promise.all([
@@ -74,6 +76,26 @@ async function readCockpit($: EngineInterface): Promise<Cockpit | undefined> {
 async function refreshCockpit($: EngineInterface) {
   cockpit = await readCockpit($)
   $.ui.invalidate('ui.render')
+}
+
+// Saves the answer, then tells Claude; prompt.submit queues behind a running turn, so Claude is not stopped.
+// A press on a question already answered finds it not open: nothing written or sent.
+async function answer($: EngineInterface, id: string, o: Option) {
+  const text = await readText($, QUESTIONS)
+  const updated = text === undefined ? undefined : answerQuestion(text, id, `${o.key}: ${o.text} (flykit band)`)
+  if (updated !== undefined) {
+    const saved = await $.fs.write(QUESTIONS, updated).then(() => true, () => false)
+    if (saved) {
+      const msg = `${id} answered in the flykit band: ${o.key}: ${o.text}. Saved in .flow/questions.md (status: answered). Apply it per the flow question protocol: act on it, set applied:, promote the next backlog question.`
+      // The answer is saved; a failed submit is picked up by the next turn or /flow:continue.
+      await $.prompt.submit({ text: msg }).catch(() => undefined)
+    }
+  }
+  await refreshCockpit($)
+}
+
+function reply($: EngineInterface, id: string) {
+  void $.prompt.fill({ text: `${id}: ` })
 }
 
 export const register: Register = on => {
@@ -112,9 +134,12 @@ export const register: Register = on => {
       isCockpitOpen = !isCockpitOpen
       $.ui.invalidate('ui.render')
     }
+    const qs = cockpit?.questions === 'broken' ? undefined : cockpit?.questions
+    const top = qs?.top
     return (
       <Box flexDirection="column" paddingX={PAD} paddingTop={1}>
         {cockpit && drawCockpit(els, cockpit, columns, isCockpitOpen, toggle)}
+        {top && drawQuestion(els, top, qs!.open, columns, isCockpitOpen, o => void answer($, top.id, o), () => reply($, top.id))}
         {drawMeter(els, view, columns)}
       </Box>
     )
