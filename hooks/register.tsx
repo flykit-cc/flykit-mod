@@ -70,6 +70,7 @@ async function readCockpit($: EngineInterface): Promise<Cockpit | undefined> {
     questions: questions === undefined ? undefined : parseQuestions(questions),
     git,
     agents,
+    peers: [],
   }
 }
 
@@ -140,7 +141,7 @@ export const register: Register = on => {
     const top = qs?.top
     return (
       <Box flexDirection="column" paddingX={PAD} paddingTop={1}>
-        {cockpit && drawCockpit(els, cockpit, columns, isCockpitOpen, toggle)}
+        {cockpit && drawCockpit(els, cockpit, columns, isCockpitOpen, toggle, () => {}, () => {})}
         {top && drawQuestion(els, top, qs!.open, columns, isCockpitOpen, o => void answer($, top.id, o), () => void reply($, top.id))}
         {drawMeter(els, view, columns)}
       </Box>

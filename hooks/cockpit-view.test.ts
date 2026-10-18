@@ -8,6 +8,7 @@ const FULL: Cockpit = {
   questions: { open: 1, top: { id: 'Q1', asks: 'Which key opens the cockpit?', options: [] } },
   git: { branch: 'main', changed: 3, ahead: 2 },
   agents: [{ type: 'Explore', description: 'map hooks' }, { type: 'flow:reviewer', description: 'check diff' }],
+  peers: [],
 }
 
 const text = (segs: { text: string }[]) => segs.map(s => s.text).join(' · ')
@@ -24,7 +25,7 @@ test('summary cuts the goal to fit and drops it when too narrow', () => {
 })
 
 test('summary leaves out empty parts and colors the rest', () => {
-  const segs = summary({ progress: { open: [], done: 0 }, questions: 'broken', git: { branch: 'dev', changed: 0, ahead: 0 }, agents: [{ type: 'Explore', description: 'x' }] }, 200)
+  const segs = summary({ progress: { open: [], done: 0 }, questions: 'broken', git: { branch: 'dev', changed: 0, ahead: 0 }, agents: [{ type: 'Explore', description: 'x' }], peers: [] }, 200)
   expect(segs).toEqual([
     { text: '● 1 agent', color: 'green' },
     { text: 'questions.md broken', color: 'red' },
@@ -33,7 +34,7 @@ test('summary leaves out empty parts and colors the rest', () => {
 })
 
 test('open questions without a drawable top still show in the summary', () => {
-  expect(text(summary({ questions: { open: 1 }, agents: [] }, 200))).toBe('? 1 question')
+  expect(text(summary({ questions: { open: 1 }, agents: [], peers: [] }, 200))).toBe('? 1 question')
 })
 
 test('detail rows', () => {
@@ -44,8 +45,8 @@ test('detail rows', () => {
     { label: 'agent', text: '● flow:reviewer · check diff', color: 'green' },
     { label: 'git', text: 'main · 3 changed · 2 unpushed' },
   ])
-  expect(detailRows({ agents: [] })).toEqual([])
-  expect(detailRows({ agents: [], questions: 'broken' })).toEqual([{ label: 'ask', text: 'questions.md broken', color: 'red' }])
+  expect(detailRows({ agents: [], peers: [] })).toEqual([])
+  expect(detailRows({ agents: [], peers: [], questions: 'broken' })).toEqual([{ label: 'ask', text: 'questions.md broken', color: 'red' }])
 })
 
 test('summary without goal when the detail is open', () => {
@@ -66,4 +67,10 @@ test('summary never exceeds the width, even with a long branch', () => {
   }
   expect(text(summary(c, 28))).toBe('2/5 tasks · ● 2 agents')
   expect(text(summary(c, 35))).toBe('2/5 tasks · ● 2 agents · feature/f…')
+})
+
+test('summary ends with the peers segment; no peers leaves it unchanged', () => {
+  const peer = { id: '1', name: 'score-c2', project: 'score', status: 'busy' }
+  expect(text(summary({ ...FULL, peers: [peer] }, 200))).toBe('Build the flykit Claude Code mod in 4 parts · 2/5 tasks · ● 2 agents · main +3 ↑2 · ⧉ 1 · 1 busy')
+  expect(text(summary(FULL, 200))).toBe('Build the flykit Claude Code mod in 4 parts · 2/5 tasks · ● 2 agents · main +3 ↑2')
 })

@@ -1,13 +1,15 @@
 import type { Elements, RenderSurface } from 'claude-code'
 
 import type { Cockpit } from './cockpit'
+import { type Peer, peerSegment } from './peers'
+import { drawPeers } from './peers-view'
 
 export type Seg = { text: string; color?: string }
 export type Row = { label: string; text: string; color?: string }
 
 const SEP = ' · '
 const MIN_GOAL = 8
-const LABEL = 7
+export const LABEL = 7
 const MIN_SEG = 4
 export const HOTKEY = 3 // the plain Button draws "c: " before the summary
 
@@ -26,6 +28,8 @@ export function summary(c: Cockpit, columns: number, withGoal = true): Seg[] {
   else if (q && q.open > 0 && !q.top) segs.push({ text: `? ${plural(q.open, 'question')}`, color: 'yellow' })
   const g = c.git
   if (g) segs.push({ text: g.branch + (g.changed > 0 ? ` +${g.changed}` : '') + (g.ahead > 0 ? ` ↑${g.ahead}` : '') })
+  const peers = peerSegment(c.peers)
+  if (peers) segs.push(peers)
 
   if (withGoal && p?.goal) {
     const used = segs.reduce((n, s) => n + s.text.length + SEP.length, 0)
@@ -60,7 +64,15 @@ export function detailRows(c: Cockpit): Row[] {
   return rows
 }
 
-export function drawCockpit(els: Pick<Elements[RenderSurface], 'Box' | 'Text' | 'Button'>, c: Cockpit, columns: number, isOpen: boolean, toggle: () => void) {
+export function drawCockpit(
+  els: Pick<Elements[RenderSurface], 'Box' | 'Text' | 'Button'>,
+  c: Cockpit,
+  columns: number,
+  isOpen: boolean,
+  toggle: () => void,
+  onPeer: (p: Peer) => void,
+  onNew: () => void,
+) {
   const { Box, Text, Button } = els
   const segs = summary(c, columns - HOTKEY, !isOpen)
   if (segs.length === 0) return null
@@ -80,6 +92,7 @@ export function drawCockpit(els: Pick<Elements[RenderSurface], 'Box' | 'Text' | 
             <Text color={r.color} dimColor={!r.color}>{cut(r.text, columns - LABEL)}</Text>
           </Box>
         ))}
+      {isOpen && drawPeers(els, c.peers, columns, onPeer, onNew)}
     </Box>
   )
 }
