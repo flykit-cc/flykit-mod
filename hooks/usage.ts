@@ -94,13 +94,25 @@ export function formatDuration(ms: number): string {
   return `${m}m`
 }
 
-// A text bar `width` cells wide; `mark` puts a │ at that percent.
-export function bar(percent: number, width: number, mark?: number): string {
+// A thin bar `width` cells wide, as runs to color apart: filled, empty, and a pace mark.
+export type BarRun = { kind: 'fill' | 'empty' | 'mark'; text: string }
+
+export function bar(percent: number, width: number, mark?: number): BarRun[] {
   const cells = Math.max(1, width)
   const filled = Math.round((clamp(percent, 0, 100) / 100) * cells)
-  const chars: string[] = Array.from({ length: cells }, (_, i) => (i < filled ? '█' : '░'))
-  if (mark !== undefined) chars[clamp(Math.round((mark / 100) * cells), 0, cells - 1)] = '│'
-  return chars.join('')
+  const kinds: BarRun['kind'][] = Array.from({ length: cells }, (_, i) => (i < filled ? 'fill' : 'empty'))
+  if (mark !== undefined) kinds[clamp(Math.round((mark / 100) * cells), 0, cells - 1)] = 'mark'
+  const glyph = { fill: '━', empty: '─', mark: '┃' }
+  const runs: BarRun[] = []
+  for (const kind of kinds) {
+    const last = runs[runs.length - 1]
+    if (last?.kind === kind) last.text += glyph[kind]
+    else runs.push({ kind, text: glyph[kind] })
+  }
+  return runs
 }
+
+const flat = (runs: BarRun[]) => runs.map(r => r.text).join('')
+export { flat as barText }
 
 export const pct = (n: number) => `${Math.round(n * 10) / 10}%`

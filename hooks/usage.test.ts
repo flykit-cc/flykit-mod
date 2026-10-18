@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'claude-code/testing'
 
-import { DAY, HOUR, WEEK, bar, formatDuration, parseModelCache, rollDay, weekMeter, type DayState } from './usage'
+import { DAY, HOUR, WEEK, bar, barText, formatDuration, parseModelCache, rollDay, weekMeter, type DayState } from './usage'
 
 // Week starts at T0; the reset is one week later.
 const T0 = Date.UTC(2026, 9, 17, 9) // Sat 09:00 UTC
@@ -96,8 +96,9 @@ describe('format', () => {
   })
 
   test('bar fills and marks', () => {
-    expect(bar(50, 10)).toBe('█████░░░░░')
-    expect(bar(50, 10, 80)).toBe('█████░░░│░')
-    expect(bar(150, 4)).toBe('████')
+    expect(barText(bar(50, 10))).toBe('━━━━━─────')
+    expect(barText(bar(50, 10, 80))).toBe('━━━━━───┃─')
+    expect(barText(bar(150, 4))).toBe('━━━━')
+    expect(bar(50, 4, 25).map(r => r.kind)).toEqual(['fill', 'mark', 'empty'])
   })
 })

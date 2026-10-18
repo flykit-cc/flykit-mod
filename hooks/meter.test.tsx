@@ -11,10 +11,10 @@ const usage = (rateLimits: SessionRateLimit[]): SessionUsage => ({
   rateLimits,
 })
 
-const props = { title: 'flykit', isFocused: false, bodyColumns: 60, placement: 'dock', scroll: { offset: 0, bodyRows: 30 } } as never
+const props = { hasSurvey: false, isWorking: false, maxRows: 10, bodyColumns: 100, scroll: { offset: 0, bodyRows: 10 }, view: {} } as never
 
 for (const surface of SURFACES) {
-  test(`${surface}: draws week, today, 5h and model rows`, async ($, on) => {
+  test(`${surface}: draws week, today, 5h and model cells`, async ($, on) => {
     mock.clock(on, { now: NOW })
     mock.store(on)
     on('session.measure', ($, e) => ({ changed: e.changed }))
@@ -27,14 +27,13 @@ for (const surface of SURFACES) {
     on('fs.read', () => ({ value: JSON.stringify({ at: NOW, scoped: [{ name: 'Fable', used_percentage: 33, resets_at: Date.parse(RESET) / 1000 }] }) }))
 
     await $.session.measure({ ...usage(limits), changed: ['rateLimits'] })
-    const ui = await $.ui.mount({ plugin: 'flykit', surface, component: 'Pane', requestId: 'flykit', props })
+    const ui = await $.ui.mount({ plugin: 'flykit', surface, component: 'AbovePrompt', props })
 
-    // Wed 21:00 is 4.5 days into the week: pace 64.3%, used 60% → 4.3 behind.
-    expect((await ui.find({ text: /pace 64\.3%/ }))).toBeDefined()
-    expect((await ui.find({ text: /behind/ }))).toBeDefined()
-    expect((await ui.find({ text: /new day in 12h/ }))).toBeDefined()
-    expect((await ui.find({ text: /resets 2h10/ }))).toBeDefined()
-    expect((await ui.find({ text: 'Fable' }))).toBeDefined()
+    // Wed 21:00 is 4.5 days into the week: pace 64.3%, used 60% → -4.3.
+    expect((await ui.find({ text: '-4.3' }))).toBeDefined()
+    expect((await ui.find({ text: 'today' }))).toBeDefined()
+    expect((await ui.find({ text: '2h10' }))).toBeDefined()
+    expect((await ui.find({ text: 'fable' }))).toBeDefined()
   })
 
   test(`${surface}: says no plan limits after a reply with none`, async ($, on) => {
@@ -45,7 +44,29 @@ for (const surface of SURFACES) {
     on('session.usage', () => ({ value: usage([]) }))
 
     await $.session.measure({ ...usage([]), changed: ['context'] })
-    const ui = await $.ui.mount({ plugin: 'flykit', surface, component: 'Pane', requestId: 'flykit', props })
+    const ui = await $.ui.mount({ plugin: 'flykit', surface, component: 'AbovePrompt', props })
     expect((await ui.find({ text: 'no plan limits' }))).toBeDefined()
   })
 }
+
+test('/flykit hides the band and shows it again', async ($, on) => {
+  mock.clock(on, { now: NOW })
+  mock.store(on)
+  mock.env(on, {})
+  on('session.measure', ($, e) => ({ changed: e.changed }))
+  on('session.usage', () => ({ value: usage([{ kind: 'seven_day', percentUsed: 10, resetsAt: RESET }]) }))
+  // Stands for the engine's own band when flykit passes it on.
+  on('ui.render', { component: 'AbovePrompt' }, ($, e) => {
+    const { Text } = $.ui.resolve(e)
+    return <Text>engine band</Text>
+  })
+
+  await $.session.measure({ ...usage([]), changed: ['rateLimits'] })
+  const ui = await $.ui.mount({ plugin: 'flykit', surface: 'terminal', component: 'AbovePrompt', props })
+  expect(await ui.find({ text: 'week' })).toBeDefined()
+  await $.command.run({ command: 'flykit', args: '' } as never)
+  expect(await ui.find({ text: 'week' })).toBeUndefined()
+  expect(await ui.find({ text: 'engine band' })).toBeDefined()
+  await $.command.run({ command: 'flykit', args: '' } as never)
+  expect(await ui.find({ text: 'week' })).toBeDefined()
+})

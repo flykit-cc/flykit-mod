@@ -3,11 +3,12 @@ import type { EngineInterface, Register } from 'claude-code'
 import { drawMeter, type FiveHourRow, type MeterView, type WeekRow } from './meter'
 import { parseModelCache, rollDay, weekMeter, type DayState } from './usage'
 
-const PANE = 'flykit'
 const CACHE = '/.config/ghostcode/.slcache/usage.json'
 
-// Last computed view; the pane draws it. Rebuilt on each reading and each minute.
+// Last computed view; the band draws it. Rebuilt on each reading and each minute.
 let view: MeterView = { kind: 'waiting' }
+// /flykit hides or shows the band.
+let isHidden = false
 
 // afterReply: a reply came back, so empty rate limits mean 'no plan limits', not 'not yet'.
 async function refresh($: EngineInterface, afterReply = false) {
@@ -39,10 +40,9 @@ async function refresh($: EngineInterface, afterReply = false) {
 
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
-    await $.command.register({ name: 'flykit', description: 'Open or close the flykit side panel' })
+    await $.command.register({ name: 'flykit', description: 'Show or hide the flykit usage meter' })
     await refresh($)
     $.clock.every(60_000, () => refresh($))
-    void $.ui.open({ id: PANE, title: 'flykit' })
     return next(e)
   })
 
@@ -52,17 +52,13 @@ export const register: Register = on => {
   })
 
   on('command.run', { command: 'flykit' }, async $ => {
-    const isOpen = (await $.ui.panes()).some(p => p.id === PANE)
-    if (isOpen) {
-      await $.ui.close({ id: PANE })
-      return { text: 'flykit panel closed.' }
-    }
-    await $.ui.open({ id: PANE, title: 'flykit' })
-    return { text: 'flykit panel opened.' }
+    isHidden = !isHidden
+    $.ui.invalidate('ui.render')
+    return { text: isHidden ? 'flykit meter hidden.' : 'flykit meter shown.' }
   })
 
-  on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
-    const els = $.ui.resolve(e)
-    return drawMeter(els, view, e.props.bodyColumns)
+  on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
+    if (isHidden || e.props.hasSurvey) return next(e)
+    return drawMeter($.ui.resolve(e), view, e.props.bodyColumns)
   })
 }
