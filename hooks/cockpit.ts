@@ -49,12 +49,13 @@ export function parseQuestions(text: string): Questions {
       continue
     }
     if (!KEY.test(line)) return 'broken'
-    const value = line.slice(line.indexOf(':') + 1).trim()
-    if (line.startsWith('status:')) {
+    // Flow checks the raw tail after "status: " (so "status:  open" is broken) and skips a bare "status:".
+    if (line.startsWith('status: ')) {
+      const value = line.slice('status: '.length)
       if (!STATUS.test(value)) return 'broken'
-      status = value
+      status = value.trimEnd()
     }
-    if (line.startsWith('asks:')) asks = value
+    if (line.startsWith('asks:')) asks = line.slice('asks:'.length).trim()
   }
   endBlock()
   return { open, top }

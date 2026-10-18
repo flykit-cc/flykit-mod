@@ -68,6 +68,14 @@ describe('parseQuestions', () => {
   test('bad status is broken', () => {
     expect(parseQuestions('## Q1\nstatus: pending\n')).toBe('broken')
   })
+
+  test('extra space before status is broken, as in flow', () => {
+    expect(parseQuestions('## Q1\nstatus:  open\n')).toBe('broken')
+  })
+
+  test('bare status line is valid but not open, as in flow', () => {
+    expect(parseQuestions('## Q1\nstatus:\nasks: x\n')).toEqual({ open: 0, top: undefined })
+  })
 })
 
 describe('parseGitStatus', () => {

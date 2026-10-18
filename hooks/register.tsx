@@ -52,14 +52,17 @@ async function readText($: EngineInterface, path: string): Promise<string | unde
 async function readCockpit($: EngineInterface): Promise<Cockpit | undefined> {
   const [progress, questions] = await Promise.all([readText($, '.flow/session-progress.md'), readText($, '.flow/questions.md')])
   if (progress === undefined && questions === undefined) return undefined
-  const git = await $.process.run(['git', 'status', '--porcelain=v1', '--branch']).then(
-    r => (r.exitCode === 0 ? parseGitStatus(r.stdout) : undefined),
-    () => undefined,
-  )
-  const agents = await $.agent.list().then(
-    list => list.filter(a => ACTIVE.has(a.status)).map(a => ({ type: a.type, description: a.description })),
-    () => [],
-  )
+  // --no-optional-locks: never take .git/index.lock, so a user's git add/commit can't collide with this poll.
+  const [git, agents] = await Promise.all([
+    $.process.run(['git', '--no-optional-locks', 'status', '--porcelain=v1', '--branch'], { timeoutMs: 3000 }).then(
+      r => (r.exitCode === 0 ? parseGitStatus(r.stdout) : undefined),
+      () => undefined,
+    ),
+    $.agent.list().then(
+      list => list.filter(a => ACTIVE.has(a.status)).map(a => ({ type: a.type, description: a.description })),
+      () => [],
+    ),
+  ])
   return {
     progress: progress === undefined ? undefined : parseProgress(progress),
     questions: questions === undefined ? undefined : parseQuestions(questions),
@@ -89,6 +92,7 @@ export const register: Register = on => {
 
   on('agent.spawn', async ($, e, next) => {
     const result = await next(e)
+    // Likely runs before the new agent is listed; the 10 s tick is what usually shows it.
     void refreshCockpit($)
     return result
   })
