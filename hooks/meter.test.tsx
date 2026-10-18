@@ -1,4 +1,4 @@
-import type { SessionRateLimit, SessionUsage } from 'claude-code'
+import type { On, SessionRateLimit, SessionUsage } from 'claude-code'
 import { expect, mock, test } from 'claude-code/testing'
 
 import { fitLines } from './meter'
@@ -26,7 +26,7 @@ for (const surface of SURFACES) {
       { kind: 'five_hour', percentUsed: 18, resetsAt: '2026-10-21T23:10:00Z' },
     ]
     on('session.usage', () => ({ value: usage(limits) }))
-    on('fs.read', () => ({ value: JSON.stringify({ at: NOW, scoped: [{ name: 'Fable', used_percentage: 33, resets_at: Date.parse(RESET) / 1000 }] }) }))
+    on('fs.read', ($, e) => (e.path.endsWith('usage.json') ? { value: JSON.stringify({ at: NOW, scoped: [{ name: 'Fable', used_percentage: 33, resets_at: Date.parse(RESET) / 1000 }] }) } : { deny: 'missing' }))
 
     await $.session.measure({ ...usage(limits), changed: ['rateLimits'] })
     const ui = await $.ui.mount({ plugin: 'flykit', surface, component: 'AbovePrompt', props })
@@ -79,4 +79,52 @@ test('band stretches to one line when wide, splits when narrow', () => {
   expect(fitLines(cells, 160).lines.length).toBe(1)
   expect(fitLines(cells, 100).lines.length).toBe(2)
   expect(fitLines(cells, 20).bar).toBe(6)
+})
+
+const PROGRESS = '## Goal\nShip the cockpit\n\n## Tasks\n- [x] parsers\n- [ ] view\n'
+const QUESTIONS = '## Q1\nstatus: open\nasks: Which key?\n'
+
+function flowWorld(on: On, files: Record<string, string>) {
+  mock.clock(on, { now: NOW })
+  mock.store(on)
+  mock.env(on, {})
+  on('session.measure', ($, e) => ({ changed: e.changed }))
+  on('session.usage', () => ({ value: usage([{ kind: 'seven_day', percentUsed: 10, resetsAt: RESET }]) }))
+  // The engine hands hooks the path resolved against the cwd, so match on its end.
+  on('fs.read', ($, e) => {
+    const hit = Object.keys(files).find(p => e.path.endsWith('/' + p))
+    return hit ? { value: files[hit]! } : { deny: 'missing' }
+  })
+  on('process.run', () => ({ value: { exitCode: 0, stdout: '## main...origin/main [ahead 2]\n M a.ts\n', stderr: '' } as never }))
+  on('agent.list', () => ({ value: [{ id: 'a1', description: 'map hooks', type: 'Explore', status: 'running' }, { id: 'a2', description: 'old', type: 'Explore', status: 'completed' }] as never }))
+}
+
+test('cockpit summary shows above the meter and opens on press', async ($, on) => {
+  flowWorld(on, { '.flow/session-progress.md': PROGRESS, '.flow/questions.md': QUESTIONS })
+  await $.session.measure({ ...usage([]), changed: ['rateLimits'] })
+  const ui = await $.ui.mount({ plugin: 'flykit', surface: 'terminal', component: 'AbovePrompt', props })
+
+  expect(await ui.find({ text: /Ship the cockpit/ })).toBeDefined()
+  expect(await ui.find({ text: /1\/2 tasks/ })).toBeDefined()
+  expect(await ui.find({ text: /● 1 agent/ })).toBeDefined()
+  expect(await ui.find({ text: /\? 1 question/ })).toBeDefined()
+  expect(await ui.find({ text: /main \+1 ↑2/ })).toBeDefined()
+  expect(await ui.find({ text: 'week' })).toBeDefined()
+  expect(await ui.find({ text: /Explore · map hooks/ })).toBeUndefined()
+
+  await ui.press({ key: 'cockpit' })
+  expect(await ui.find({ text: /Explore · map hooks/ })).toBeDefined()
+  expect(await ui.find({ text: /\? Which key\?/ })).toBeDefined()
+
+  await ui.press({ key: 'cockpit' })
+  expect(await ui.find({ text: /Explore · map hooks/ })).toBeUndefined()
+})
+
+test('no .flow folder: no cockpit, meter still drawn', async ($, on) => {
+  flowWorld(on, {})
+  await $.session.measure({ ...usage([]), changed: ['rateLimits'] })
+  const ui = await $.ui.mount({ plugin: 'flykit', surface: 'terminal', component: 'AbovePrompt', props })
+  expect(await ui.find({ text: /agent/ })).toBeUndefined()
+  expect(await ui.find({ text: /main/ })).toBeUndefined()
+  expect(await ui.find({ text: 'week' })).toBeDefined()
 })

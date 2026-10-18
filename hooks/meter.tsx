@@ -14,7 +14,6 @@ export type MeterView =
 type Cell = { key: string; label: string; percent: number; value?: number; mark?: number; tail: string; color?: string; dim?: boolean }
 
 const GAP = 3
-const PAD = 2 // matches the status line indent
 const MIN_BAR = 6
 const PCT = 5 // " 100%"
 
@@ -57,11 +56,6 @@ export function meterCells(view: Extract<MeterView, { kind: 'ready' }>): Cell[] 
 }
 
 export function drawMeter(els: Pick<Elements[RenderSurface], 'Box' | 'Text'>, view: MeterView, columns: number) {
-  const { Box } = els
-  return <Box paddingX={PAD} paddingTop={1}>{meterBody(els, view, columns - 2 * PAD)}</Box>
-}
-
-function meterBody(els: Pick<Elements[RenderSurface], 'Box' | 'Text'>, view: MeterView, columns: number) {
   const { Box, Text } = els
   if (view.kind === 'no-limits') return <Text dimColor>no plan limits</Text>
   if (view.kind === 'waiting') return <Text dimColor>usage: waiting for first reply</Text>
