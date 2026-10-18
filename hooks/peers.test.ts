@@ -13,6 +13,9 @@ describe('parseSession', () => {
     expect(parseSession(JSON.stringify({ pid: '1', sessionId: 'a', name: 'n' }))).toBeUndefined()
     expect(parseSession(JSON.stringify({ pid: 1, name: 'n' }))).toBeUndefined()
   })
+  test('a pid ps cannot take is rejected', () => {
+    for (const pid of [0, -1, 1.5]) expect(parseSession(JSON.stringify({ pid, sessionId: 'a', name: 'n' }))).toBeUndefined()
+  })
 })
 
 test('livePids', () => {

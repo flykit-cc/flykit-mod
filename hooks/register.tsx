@@ -136,6 +136,12 @@ async function pickPeer($: EngineInterface, p: Peer) {
   await $.prompt.fill({ text: text.startsWith(tag) ? text : tag + text.trimStart() }).catch(() => undefined)
 }
 
+// Puts an unsent message back without losing a draft typed meanwhile.
+async function restore($: EngineInterface, original: string) {
+  const draft = await $.prompt.read().then(d => d.text, () => '')
+  await $.prompt.fill({ text: draft ? `${original} ${draft}` : original }).catch(() => undefined)
+}
+
 // Ghostty's own command starts the ghostcode picker in the new window.
 async function newSession($: EngineInterface) {
   await $.process.run(['open', '-na', 'Ghostty']).catch(() => undefined)
@@ -163,18 +169,19 @@ export const register: Register = on => {
   })
 
   // `@<live peer name> text` typed by the user goes to that session, not to Claude.
+  // Names may hold spaces, so match the longest live name, not a regex word.
   on('prompt.submit', async ($, e, next) => {
-    if (e.command || (e.origin && e.origin.kind !== 'composer')) return next(e)
-    const m = /^@(\S+)\s+([\s\S]+)$/.exec(e.text)
-    if (!m) return next(e)
-    const peer = (await readPeers($, await $.clock.now())).find(p => p.name === m[1])
-    if (!peer) return next(e)
-    const reason = await $.session.send({ to: { sessionId: peer.id }, text: m[2]!.trim() }).then(
+    if (e.command || (e.origin && e.origin.kind !== 'composer') || !e.text.startsWith('@')) return next(e)
+    const peers = await readPeers($, await $.clock.now())
+    const peer = peers.filter(p => e.text.startsWith('@' + p.name) && /\s/.test(e.text.charAt(p.name.length + 1))).sort((a, b) => b.name.length - a.name.length)[0]
+    const text = peer && e.text.slice(peer.name.length + 1).trim()
+    if (!peer || !text) return next(e)
+    const reason = await $.session.send({ to: { sessionId: peer.id }, text }).then(
       r => (r.isDelivered ? undefined : r.reason),
       (err: unknown) => (err instanceof Error ? err.message : String(err)),
     )
     if (reason === undefined) return { drop: `✓ sent to ${peer.name}` }
-    await $.prompt.fill({ text: e.text }).catch(() => undefined)
+    await restore($, e.text)
     return { drop: `✗ not sent to ${peer.name}: ${reason}` }
   })
 

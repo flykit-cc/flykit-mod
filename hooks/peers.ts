@@ -18,7 +18,8 @@ export function parseSession(text: string): SessionEntry | undefined {
   }
   if (!raw || typeof raw !== 'object') return undefined
   const { sessionId, name, pid, cwd, status } = raw as Record<string, unknown>
-  if (typeof sessionId !== 'string' || typeof name !== 'string' || typeof pid !== 'number') return undefined
+  // A bad pid would make the one `ps -p` call fail and hide every peer.
+  if (typeof sessionId !== 'string' || typeof name !== 'string' || typeof pid !== 'number' || !Number.isInteger(pid) || pid <= 0) return undefined
   return {
     id: sessionId,
     name,
