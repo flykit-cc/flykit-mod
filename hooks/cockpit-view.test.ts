@@ -38,10 +38,14 @@ test('detail rows', () => {
     { label: 'next', text: '○ write spec   ○ build band' },
     { label: 'agent', text: '● Explore · map hooks', color: 'green' },
     { label: 'agent', text: '● flow:reviewer · check diff', color: 'green' },
-    { label: 'ask', text: '? Which key opens the cockpit?', color: 'yellow' },
     { label: 'git', text: 'main · 3 changed · 2 unpushed' },
   ])
   expect(detailRows({ agents: [] })).toEqual([])
+  expect(detailRows({ agents: [], questions: 'broken' })).toEqual([{ label: 'ask', text: 'questions.md broken', color: 'red' }])
+})
+
+test('summary without goal when the detail is open', () => {
+  expect(text(summary(FULL, 200, false))).toBe('2/5 tasks · ● 2 agents · ? 1 question · main +3 ↑2')
 })
 
 test('summary goal boundary: 8 columns left keeps the goal, 7 drops it', () => {

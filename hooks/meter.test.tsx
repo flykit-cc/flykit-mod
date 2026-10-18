@@ -114,7 +114,6 @@ test('cockpit summary shows above the meter and opens on press', async ($, on) =
 
   await ui.press({ key: 'cockpit' })
   expect(await ui.find({ text: /Explore · map hooks/ })).toBeDefined()
-  expect(await ui.find({ text: /\? Which key\?/ })).toBeDefined()
 
   await ui.press({ key: 'cockpit' })
   expect(await ui.find({ text: /Explore · map hooks/ })).toBeUndefined()
