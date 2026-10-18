@@ -43,3 +43,19 @@ test('detail rows', () => {
   ])
   expect(detailRows({ agents: [] })).toEqual([])
 })
+
+test('summary goal boundary: 8 columns left keeps the goal, 7 drops it', () => {
+  const rest = '2/5 tasks · ● 2 agents · ? 1 question · main +3 ↑2'
+  expect(text(summary(FULL, rest.length + 3 + 8))).toBe('Build t… · ' + rest)
+  expect(text(summary(FULL, rest.length + 3 + 7))).toBe(rest)
+})
+
+test('summary never exceeds the width, even with a long branch', () => {
+  const c: Cockpit = { ...FULL, git: { branch: 'feature/flow-cockpit-band', changed: 12, ahead: 3 } }
+  for (let columns = 0; columns <= 120; columns++) {
+    const line = text(summary(c, columns))
+    if (line.length > columns) throw new Error(`${columns} columns gave ${line.length}: ${line}`)
+  }
+  expect(text(summary(c, 40))).toBe('2/5 tasks · ● 2 agents · ? 1 question')
+  expect(text(summary(c, 50))).toBe('2/5 tasks · ● 2 agents · ? 1 question · feature/f…')
+})

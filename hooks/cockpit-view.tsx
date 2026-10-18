@@ -8,6 +8,8 @@ export type Row = { label: string; text: string; color?: string }
 const SEP = ' · '
 const MIN_GOAL = 8
 const LABEL = 7
+const MIN_SEG = 4
+const HOTKEY = 3 // the plain Button draws "c: " before the summary
 
 const cut = (s: string, n: number) => (s.length <= n ? s : s.slice(0, Math.max(0, n - 1)) + '…')
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`
@@ -29,7 +31,19 @@ export function summary(c: Cockpit, columns: number): Seg[] {
     const room = columns - used
     if (room >= MIN_GOAL) segs.unshift({ text: cut(p.goal, room) })
   }
-  return segs
+  return fit(segs, columns)
+}
+
+// No line wraps: cut the last segment to fit, or drop it when too little room is left.
+function fit(segs: Seg[], columns: number): Seg[] {
+  for (;;) {
+    const over = segs.reduce((n, s) => n + s.text.length, 0) + SEP.length * Math.max(0, segs.length - 1) - columns
+    const last = segs[segs.length - 1]
+    if (over <= 0 || !last) return segs
+    const keep = last.text.length - over
+    if (keep < MIN_SEG) segs.pop()
+    else segs[segs.length - 1] = { ...last, text: cut(last.text, keep) }
+  }
 }
 
 export function detailRows(c: Cockpit): Row[] {
@@ -48,7 +62,7 @@ export function detailRows(c: Cockpit): Row[] {
 
 export function drawCockpit(els: Pick<Elements[RenderSurface], 'Box' | 'Text' | 'Button'>, c: Cockpit, columns: number, isOpen: boolean, toggle: () => void) {
   const { Box, Text, Button } = els
-  const segs = summary(c, columns)
+  const segs = summary(c, columns - HOTKEY)
   if (segs.length === 0) return null
   return (
     <Box flexDirection="column">
