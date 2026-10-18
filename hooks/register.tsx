@@ -4,6 +4,7 @@ import { answerQuestion, parseGitStatus, parseProgress, parseQuestions, type Coc
 import { drawCockpit } from './cockpit-view'
 import { drawQuestion } from './question-view'
 import { drawMeter, type FiveHourRow, type MeterView, type WeekRow } from './meter'
+import { livePids, parseSession, projectOf, track, type Peer, type PeerMemory, type SessionEntry } from './peers'
 import { parseModelCache, rollDay, weekMeter, type DayState } from './usage'
 
 const CACHE = '/.config/ghostcode/.slcache/usage.json'
@@ -17,6 +18,7 @@ let cockpit: Cockpit | undefined
 // /flykit hides or shows the band; pressing the cockpit line opens or closes its detail.
 let isHidden = false
 let isCockpitOpen = false
+let peerMemory: PeerMemory = {}
 
 // afterReply: a reply came back, so empty rate limits mean 'no plan limits', not 'not yet'.
 async function refresh($: EngineInterface, afterReply = false) {
@@ -50,12 +52,36 @@ async function readText($: EngineInterface, path: string): Promise<string | unde
   return $.fs.read(path).then(t => t as string, () => undefined)
 }
 
-// No .flow files → undefined: the band shows the meter alone.
+// The other live Claude Code sessions, from the registry. Only *.json files: the folder also holds *.key secrets.
+async function readPeers($: EngineInterface, now: number): Promise<Peer[]> {
+  try {
+    const home = await $.env.get('HOME')
+    if (!home) return []
+    const dir = home + '/.claude/sessions'
+    const names = (await $.fs.list(dir)).filter(f => f.kind === 'file' && f.name.endsWith('.json')).map(f => f.name)
+    const me = await $.session.id()
+    const texts = await Promise.all(names.map(n => readText($, `${dir}/${n}`)))
+    const entries = texts.map(t => (t === undefined ? undefined : parseSession(t))).filter((e): e is SessionEntry => e !== undefined && e.id !== me)
+    if (entries.length === 0) return []
+    const ps = await $.process.run(['ps', '-o', 'pid=', '-p', entries.map(e => e.pid).join(',')], { timeoutMs: 3000 })
+    const live = livePids(ps.stdout)
+    const alive = entries.filter(e => live.has(e.pid))
+    const { statuses, memory } = track(alive, peerMemory, now)
+    peerMemory = memory
+    const goals = await Promise.all(alive.map(e => readText($, e.cwd + '/.flow/session-progress.md').then(t => (t === undefined ? undefined : parseProgress(t).goal))))
+    return alive.map((e, i) => ({ id: e.id, name: e.name, project: projectOf(e.cwd), status: statuses[e.id]!, ...(goals[i] ? { goal: goals[i] } : {}) }))
+  } catch {
+    return []
+  }
+}
+
+// No .flow files and no peers → undefined: the band shows the meter alone.
 async function readCockpit($: EngineInterface): Promise<Cockpit | undefined> {
-  const [progress, questions] = await Promise.all([readText($, '.flow/session-progress.md'), readText($, QUESTIONS)])
-  if (progress === undefined && questions === undefined) return undefined
+  const now = await $.clock.now()
   // --no-optional-locks: never take .git/index.lock, so a user's git add/commit can't collide with this poll.
-  const [git, agents] = await Promise.all([
+  const [progress, questions, git, agents, peers] = await Promise.all([
+    readText($, '.flow/session-progress.md'),
+    readText($, QUESTIONS),
     $.process.run(['git', '--no-optional-locks', 'status', '--porcelain=v1', '--branch'], { timeoutMs: 3000 }).then(
       r => (r.exitCode === 0 ? parseGitStatus(r.stdout) : undefined),
       () => undefined,
@@ -64,13 +90,15 @@ async function readCockpit($: EngineInterface): Promise<Cockpit | undefined> {
       list => list.filter(a => ACTIVE.has(a.status)).map(a => ({ type: a.type, description: a.description })),
       () => [],
     ),
+    readPeers($, now),
   ])
+  if (progress === undefined && questions === undefined && peers.length === 0) return undefined
   return {
     progress: progress === undefined ? undefined : parseProgress(progress),
     questions: questions === undefined ? undefined : parseQuestions(questions),
     git,
     agents,
-    peers: [],
+    peers,
   }
 }
 
@@ -101,6 +129,18 @@ async function reply($: EngineInterface, id: string) {
   await $.prompt.fill({ text: text.startsWith(`${id}:`) ? text : `${id}: ${text}` }).catch(() => undefined)
 }
 
+// Puts @name in front of the draft, so nothing typed is lost.
+async function pickPeer($: EngineInterface, p: Peer) {
+  const { text } = await $.prompt.read()
+  const tag = `@${p.name} `
+  await $.prompt.fill({ text: text.startsWith(tag) ? text : tag + text.trimStart() }).catch(() => undefined)
+}
+
+// Ghostty's own command starts the ghostcode picker in the new window.
+async function newSession($: EngineInterface) {
+  await $.process.run(['open', '-na', 'Ghostty']).catch(() => undefined)
+}
+
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     await $.command.register({ name: 'flykit', description: 'Show or hide the flykit band' })
@@ -122,6 +162,22 @@ export const register: Register = on => {
     return result
   })
 
+  // `@<live peer name> text` typed by the user goes to that session, not to Claude.
+  on('prompt.submit', async ($, e, next) => {
+    if (e.command || (e.origin && e.origin.kind !== 'composer')) return next(e)
+    const m = /^@(\S+)\s+([\s\S]+)$/.exec(e.text)
+    if (!m) return next(e)
+    const peer = (await readPeers($, await $.clock.now())).find(p => p.name === m[1])
+    if (!peer) return next(e)
+    const reason = await $.session.send({ to: { sessionId: peer.id }, text: m[2]!.trim() }).then(
+      r => (r.isDelivered ? undefined : r.reason),
+      (err: unknown) => (err instanceof Error ? err.message : String(err)),
+    )
+    if (reason === undefined) return { drop: `✓ sent to ${peer.name}` }
+    await $.prompt.fill({ text: e.text }).catch(() => undefined)
+    return { drop: `✗ not sent to ${peer.name}: ${reason}` }
+  })
+
   on('command.run', { command: 'flykit' }, async $ => {
     isHidden = !isHidden
     $.ui.invalidate('ui.render')
@@ -141,7 +197,7 @@ export const register: Register = on => {
     const top = qs?.top
     return (
       <Box flexDirection="column" paddingX={PAD} paddingTop={1}>
-        {cockpit && drawCockpit(els, cockpit, columns, isCockpitOpen, toggle, () => {}, () => {})}
+        {cockpit && drawCockpit(els, cockpit, columns, isCockpitOpen, toggle, p => void pickPeer($, p), () => void newSession($))}
         {top && drawQuestion(els, top, qs!.open, columns, isCockpitOpen, o => void answer($, top.id, o), () => void reply($, top.id))}
         {drawMeter(els, view, columns)}
       </Box>
