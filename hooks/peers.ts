@@ -1,5 +1,7 @@
 // Pure helpers for the other Claude Code sessions on this Mac. No engine calls here.
 
+import type { Tone } from './style'
+
 // One registry file, trimmed to the fields we use.
 export type SessionEntry = { id: string; name: string; pid: number; cwd: string; status: string }
 // status: 'busy' | 'done' | 'idle' | whatever the registry says
@@ -59,10 +61,11 @@ export function track(
   return { statuses, memory: next }
 }
 
-export function peerSegment(peers: Peer[]): { text: string; color?: string } | undefined {
-  if (peers.length === 0) return undefined
+// The summary's peer chips: count and busy (green while any is busy), then one warning chip per finished peer.
+export function peerSegments(peers: Peer[]): { text: string; tone?: Tone }[] {
+  if (peers.length === 0) return []
   const busy = peers.filter(p => p.status === 'busy').length
   const done = peers.filter(p => p.status === 'done')
-  const text = [`⧉ ${peers.length}`, ...(busy ? [`${busy} busy`] : []), ...done.map(p => `${p.project} done`)].join(' · ')
-  return done.length ? { text, color: 'yellow' } : { text }
+  const head = busy ? { text: `⧉ ${peers.length} · ${busy} busy`, tone: 'success' as const } : { text: `⧉ ${peers.length}` }
+  return [head, ...done.map(p => ({ text: `${p.project} done`, tone: 'warning' as const }))]
 }

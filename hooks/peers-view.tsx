@@ -1,31 +1,37 @@
 import type { Elements, RenderSurface } from 'claude-code'
 
-import { cut, LABEL } from './cockpit-view'
 import type { Peer } from './peers'
+import { chip, chipWidth, cut, LABEL, label, PAD, type Tone } from './style'
 
 // No hotkey on these Buttons: a bare digit typed into an empty prompt would press them.
-export type PeerRow = { key: string; dot: string; color?: string; text: string } // text = everything after the dot, already cut
+// name: cut and padded; status: padded to one chip width; tail: the goal or project, cut ('' when no room).
+export type PeerRow = { key: string; name: string; status: string; tone: Tone; tail: string }
 
 const MAX_NAME = 16
 const STATUS = 5
-const GAP = '  '
-const DOT = 2 // dot + space
+const CHIP = STATUS + PAD
+const TAIL_GAP = '  '
 const NEW = '＋ new session'
 
-const DOTS: Record<string, { dot: string; color?: string }> = {
-  busy: { dot: '●', color: 'green' },
-  done: { dot: '○', color: 'yellow' },
-  idle: { dot: '○' },
-}
+const TONES: Record<string, Tone> = { busy: 'success', done: 'warning' }
+
+// name, space, status chip, then the tail after two spaces
+export const rowWidth = (r: PeerRow) => r.name.length + 1 + chipWidth(r.status) + (r.tail ? TAIL_GAP.length + r.tail.length : 0)
 
 export function peerRows(peers: Peer[], columns: number): PeerRow[] {
-  const width = Math.min(MAX_NAME, Math.max(0, ...peers.map(p => p.name.length)))
+  const width = Math.max(1, Math.min(MAX_NAME, columns - 1 - CHIP, Math.max(0, ...peers.map(p => p.name.length))))
+  const room = columns - width - 1 - CHIP - TAIL_GAP.length
   return peers.map((p, i) => {
     const tail = p.goal ? `goal: ${p.goal}` : p.project
-    const text = [cut(p.name, width).padEnd(width), p.status.padEnd(STATUS), tail].join(GAP)
     // Duplicate names need distinct keys; the first keeps `peer-<name>`.
     const key = peers.findIndex(q => q.name === p.name) === i ? `peer-${p.name}` : `peer-${p.name}-${i}`
-    return { key, ...(DOTS[p.status] ?? { dot: '◌' }), text: cut(text, columns - DOT) }
+    return {
+      key,
+      name: cut(p.name, width).padEnd(width),
+      status: cut(p.status, STATUS).padEnd(STATUS),
+      tone: TONES[p.status] ?? 'neutral',
+      tail: room > 0 ? cut(tail, room) : '',
+    }
   })
 }
 
@@ -42,17 +48,22 @@ export function drawPeers(
     <Box flexDirection="column">
       {rows.map((r, i) => (
         <Box key={`peer-row-${i}`}>
-          <Text dimColor>{(i === 0 ? 'peers' : '').padEnd(LABEL)}</Text>
+          {label(Text, i === 0 ? 'peers' : '')}
           <Button key={r.key} plain onPress={() => onPeer(peers[i]!)}>
-            <Text color={r.color} dimColor={!r.color}>{r.dot + ' '}</Text>
-            <Text dimColor={peers[i]!.status !== 'busy'}>{r.text}</Text>
+            <Text bold color="text" hover={{ scope: r.key, color: 'claude' }}>
+              {r.name + ' '}
+            </Text>
+            {chip(Text, r.status, r.tone, r.key)}
+            <Text dimColor hover={{ scope: r.key, dimColor: false }}>
+              {r.tail ? TAIL_GAP + r.tail : ''}
+            </Text>
           </Button>
         </Box>
       ))}
       <Box>
-        <Text dimColor>{(rows.length === 0 ? 'peers' : '').padEnd(LABEL)}</Text>
+        {label(Text, rows.length === 0 ? 'peers' : '')}
         <Button key="new-session" plain onPress={onNew}>
-          {cut(NEW, columns - LABEL - 1) /* ＋ is two columns wide */}
+          {chip(Text, cut(NEW, columns - LABEL - PAD - 1 /* ＋ is two columns wide */), 'neutral', 'new-session')}
         </Button>
       </Box>
     </Box>

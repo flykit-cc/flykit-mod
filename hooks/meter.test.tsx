@@ -105,11 +105,12 @@ test('cockpit summary shows above the meter and opens on press', async ($, on) =
   const ui = await $.ui.mount({ plugin: 'flykit', surface: 'terminal', component: 'AbovePrompt', props })
 
   expect(await ui.find({ text: /Ship the cockpit/ })).toBeDefined()
-  expect(await ui.find({ text: /1\/2 tasks/ })).toBeDefined()
-  expect(await ui.find({ text: /● 1 agent/ })).toBeDefined()
-  expect(await ui.find({ text: /\? 1 question/ })).toBeUndefined() // the question block below shows it
-  expect(await ui.find({ text: '? Q1 Which key?' })).toBeDefined()
-  expect(await ui.find({ text: /main \+1 ↑2/ })).toBeDefined()
+  expect(await ui.find({ text: ' ✓ 1/2 ' })).toBeDefined()
+  expect(await ui.find({ text: ' ● 1 ' })).toBeDefined()
+  expect(await ui.find({ text: ' ? 1 ' })).toBeUndefined() // the question block below shows it
+  expect(await ui.find({ text: ' ? Q1 ' })).toBeDefined()
+  expect(await ui.find({ text: ' Which key?' })).toBeDefined()
+  expect(await ui.find({ text: ' main +1 ↑2 ' })).toBeDefined()
   expect(await ui.find({ text: 'week' })).toBeDefined()
   expect(await ui.find({ text: /Explore · map hooks/ })).toBeUndefined()
 

@@ -134,7 +134,8 @@ test('a peer that goes from busy to idle shows as done', async ($, on) => {
   const ui = await mount($)
   w.files[`${DIR}/1.json`] = entry('s1', 'api', 1, '/w/api', 'idle')
   await $.session.measure({ ...usage, changed: ['rateLimits'] })
-  expect(await ui.find({ text: /⧉ 1 · api done/ })).toBeDefined()
+  expect(await ui.find({ text: ' ⧉ 1 ' })).toBeDefined()
+  expect(await ui.find({ text: ' api done ' })).toBeDefined()
 })
 
 test('a send that rejects drops with ✗ and puts the text back', async ($, on) => {

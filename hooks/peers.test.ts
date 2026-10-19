@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'claude-code/testing'
 
-import { DONE_MS, livePids, parseSession, peerSegment, projectOf, track, type SessionEntry } from './peers'
+import { DONE_MS, livePids, parseSession, peerSegments, projectOf, track, type SessionEntry } from './peers'
 
 describe('parseSession', () => {
   test('reads the fields we use', () => {
@@ -64,11 +64,14 @@ describe('track', () => {
   })
 })
 
-describe('peerSegment', () => {
+describe('peerSegments', () => {
   const p = (name: string, status: string) => ({ id: name, name, project: name.split('-')[0]!, status })
-  test('empty → undefined', () => expect(peerSegment([])).toBeUndefined())
+  test('empty → none', () => expect(peerSegments([])).toEqual([]))
   test('count, busy, done', () => {
-    expect(peerSegment([p('score-c2', 'busy'), p('enso-0d', 'done'), p('legacy-ef', 'idle')])).toEqual({ text: '⧉ 3 · 1 busy · enso done', color: 'yellow' })
-    expect(peerSegment([p('legacy-ef', 'idle')])).toEqual({ text: '⧉ 1' })
+    expect(peerSegments([p('score-c2', 'busy'), p('enso-0d', 'done'), p('legacy-ef', 'idle')])).toEqual([
+      { text: '⧉ 3 · 1 busy', tone: 'success' },
+      { text: 'enso done', tone: 'warning' },
+    ])
+    expect(peerSegments([p('legacy-ef', 'idle')])).toEqual([{ text: '⧉ 1' }])
   })
 })

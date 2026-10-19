@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { peerRows } from './peers-view'
+import { peerRows, rowWidth } from './peers-view'
 
 const P = [
   { id: '1', name: 'score-c2', project: 'score', status: 'busy', goal: 'Ship v2 checkout' },
@@ -9,17 +9,22 @@ const P = [
   { id: '4', name: 'macring-3a', project: 'macring', status: 'shell' },
 ]
 
-test('rows: dot, padded name, status, goal or project', () => {
+test('rows: padded name, toned status chip, goal or project', () => {
   expect(peerRows(P, 80)).toEqual([
-    { key: 'peer-score-c2', dot: '●', color: 'green', text: 'score-c2          busy   goal: Ship v2 checkout' },
-    { key: 'peer-enso-0d', dot: '○', color: 'yellow', text: 'enso-0d           done   goal: Leg B money path' },
-    { key: 'peer-legacytradesgroup-ef', dot: '○', text: 'legacytradesgro…  idle   legacytradesgroup' },
-    { key: 'peer-macring-3a', dot: '◌', text: 'macring-3a        shell  macring' },
+    { key: 'peer-score-c2', name: 'score-c2        ', status: 'busy ', tone: 'success', tail: 'goal: Ship v2 checkout' },
+    { key: 'peer-enso-0d', name: 'enso-0d         ', status: 'done ', tone: 'warning', tail: 'goal: Leg B money path' },
+    { key: 'peer-legacytradesgroup-ef', name: 'legacytradesgro…', status: 'idle ', tone: 'neutral', tail: 'legacytradesgroup' },
+    { key: 'peer-macring-3a', name: 'macring-3a      ', status: 'shell', tone: 'neutral', tail: 'macring' },
   ])
 })
 
-test('rows fit a narrow width', () => {
-  for (const r of peerRows(P, 30)) expect(2 + r.text.length).toBeLessThanOrEqual(30)
+test('rows fit every width, chip padding counted', () => {
+  for (let columns = 10; columns <= 80; columns++) {
+    for (const r of peerRows(P, columns)) {
+      if (rowWidth(r) > columns) throw new Error(`${columns} columns gave ${rowWidth(r)}: ${r.name}|${r.status}|${r.tail}`)
+    }
+  }
+  expect(peerRows(P, 40)[0]!.tail).toBe('goal: Ship v2…')
 })
 
 test('a repeated name gets a unique key; the first keeps peer-<name>', () => {

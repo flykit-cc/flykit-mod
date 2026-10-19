@@ -52,7 +52,8 @@ async function mount($: Engine) {
 test('band shows the open question with answer buttons', async ($, on) => {
   world(on, { [Q]: TWO })
   const ui = await mount($)
-  expect(await ui.find({ text: '? Q3 Which key?' })).toBeDefined()
+  expect(await ui.find({ text: ' ? Q3 ' })).toBeDefined()
+  expect(await ui.find({ text: ' Which key?' })).toBeDefined()
   expect(await ui.find({ text: '1 of 2' })).toBeDefined()
   expect(await ui.find({ key: 'answer-A' })).toBeDefined()
   expect(await ui.find({ key: 'answer-B' })).toBeDefined()
@@ -72,7 +73,8 @@ test('a click saves the answer, tells Claude, and moves to the next question', a
   expect(w.writes[0]!.text).toContain('## Q4\nstatus: open')
   expect(w.submits.length).toBe(1)
   expect(w.submits[0]!.startsWith('Q3 answered in the flykit band: B: k.')).toBe(true)
-  expect(await ui.find({ text: '? Q4 next one' })).toBeDefined()
+  expect(await ui.find({ text: ' ? Q4 ' })).toBeDefined()
+  expect(await ui.find({ text: ' next one' })).toBeDefined()
   expect(await ui.find({ text: /Which key\?/ })).toBeUndefined()
 })
 
@@ -97,7 +99,8 @@ test('a failed write tells Claude nothing and keeps the question', async ($, on)
   const ui = await mount($)
   await ui.press({ key: 'answer-A' })
   expect(w.submits.length).toBe(0)
-  expect(await ui.find({ text: '? Q3 Which key?' })).toBeDefined()
+  expect(await ui.find({ text: ' ? Q3 ' })).toBeDefined()
+  expect(await ui.find({ text: ' Which key?' })).toBeDefined()
 })
 
 test('reply fills the prompt with the question id', async ($, on) => {

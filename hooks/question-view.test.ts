@@ -2,6 +2,7 @@ import { expect, test } from 'claude-code/testing'
 
 import type { OpenQuestion } from './cockpit'
 import { contextLines, questionButtons, questionHeader } from './question-view'
+import { chipsWidth } from './style'
 
 const Q: OpenQuestion = {
   id: 'Q3',
@@ -10,12 +11,15 @@ const Q: OpenQuestion = {
   recommended: 'A',
 }
 
-const width = (row: { label: string }[]) => 2 + row.reduce((n, b) => n + b.label.length, 0) + 3 * (row.length - 1)
+// Indent, then chips drawn " label " one column apart.
+const width = (row: { label: string }[]) => 2 + chipsWidth(row.map(b => b.label))
 
 test('header with count when more than one is open', () => {
-  expect(questionHeader(Q, 2, 80)).toEqual({ text: '? Q3 Which key opens the cockpit?', count: '1 of 2' })
-  expect(questionHeader(Q, 1, 80)).toEqual({ text: '? Q3 Which key opens the cockpit?' })
-  expect(questionHeader(Q, 2, 25)).toEqual({ text: '? Q3 Which key o…', count: '1 of 2' })
+  expect(questionHeader(Q, 2, 80)).toEqual({ id: '? Q3', text: 'Which key opens the cockpit?', count: '1 of 2' })
+  expect(questionHeader(Q, 1, 80)).toEqual({ id: '? Q3', text: 'Which key opens the cockpit?' })
+  // chip " ? Q3 " (6) + space + text + two spaces + "1 of 2" (6) = 25
+  expect(questionHeader(Q, 2, 25)).toEqual({ id: '? Q3', text: 'Which key…', count: '1 of 2' })
+  expect(questionHeader(Q, 1, 17)).toEqual({ id: '? Q3', text: 'Which key…' })
 })
 
 test('buttons on one row, star on the recommended, reply last', () => {
@@ -57,13 +61,14 @@ test('more than 8 options: all shown, each row fits', () => {
   for (const row of rows) expect(width(row)).toBeLessThanOrEqual(40)
 })
 
-test('one-row budget uses the full width without hotkey prefixes', () => {
-  // 2 options + reply at 40 columns: per = floor((38 - 7 - 6) / 2) = 12, so one row
+test('one-row budget uses the full width, chip padding counted', () => {
+  // 2 options + reply at 42 columns: per = floor((40 - 9 - 2 * 3) / 2) = 12 (reply chip 9, each option padding 2 + gap 1)
   const q: OpenQuestion = { id: 'Q1', asks: 'x', options: [{ key: 'A', text: 'a'.repeat(30) }, { key: 'B', text: 'b'.repeat(30) }] }
-  const rows = questionButtons(q, 40)
+  const rows = questionButtons(q, 42)
   expect(rows.length).toBe(1)
   expect(rows[0]![0]!.label.length).toBe(12)
-  expect(width(rows[0]!)).toBeLessThanOrEqual(40)
+  expect(width(rows[0]!)).toBeLessThanOrEqual(42)
+  expect(questionButtons(q, 40).length).toBe(3) // two columns less: per 11, below the minimum
 })
 
 test('context breaks at spaces, max 3 lines, ellipsis when cut', () => {
