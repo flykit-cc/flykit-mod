@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 
 import type { Cockpit } from './cockpit'
-import { detailRows, summary } from './cockpit-view'
+import { detailRows, HEAD, summary } from './cockpit-view'
 import { chipsWidth } from './style'
 
 const FULL: Cockpit = {
@@ -69,6 +69,8 @@ test('summary never exceeds the width, chip padding and gaps counted', () => {
     const segs = summary(c, columns)
     if (width(segs) > columns) throw new Error(`${columns} columns gave ${width(segs)}: ${text(segs)}`)
   }
+  // The whole row: the bracketed "[ ◆ flykit ▸ ]" toggle and a gap before each chip, as drawCockpit lays it out.
+  for (let columns = HEAD; columns <= 140; columns++) expect(HEAD + width(summary(c, columns - HEAD))).toBeLessThanOrEqual(columns)
   expect(text(summary(c, 13))).toBe('✓ 2/5 | ● 2')
   expect(text(summary(c, 25))).toBe('✓ 2/5 | ● 2 | feature/…')
 })

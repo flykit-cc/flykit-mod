@@ -24,10 +24,11 @@ const TONES: Record<Tone, { bg: Color; fg: Color }> = {
   accent: { bg: 'claude', fg: 'inverseText' },
 }
 
-// scope: the hover group of the Button the chip sits in; a pressable chip lights in the accent, an accent one flips to text.
-export function chip(Text: TextEl, text: string, tone: Tone = 'neutral', scope?: string, key?: string) {
+// scope: the hover group of the Button the chip sits in (1 to 64 characters, or the engine refuses the whole band:
+// never derive it from free text). A lit chip turns accent, an accent one flips to text; unlit, it only joins the group.
+export function chip(Text: TextEl, text: string, tone: Tone = 'neutral', scope?: string, key?: string, lit = true) {
   const { bg, fg } = TONES[tone]
-  const hover = scope ? (tone === 'accent' ? { scope, backgroundColor: 'text', color: 'inverseText' } : { scope, backgroundColor: 'claude', color: 'inverseText' }) : undefined
+  const hover = !scope ? undefined : !lit ? { scope } : tone === 'accent' ? { scope, backgroundColor: 'text', color: 'inverseText' } : { scope, backgroundColor: 'claude', color: 'inverseText' }
   return (
     <Text key={key} backgroundColor={bg} color={fg} bold={tone !== 'neutral'} hover={hover}>
       {' ' + text + ' '}

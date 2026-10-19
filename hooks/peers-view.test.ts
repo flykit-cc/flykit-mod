@@ -11,9 +11,9 @@ const P = [
 
 test('rows: padded name, toned status chip, goal or project', () => {
   expect(peerRows(P, 80)).toEqual([
-    { key: 'peer-score-c2', name: 'score-c2        ', status: 'busy ', tone: 'success', tail: 'goal: Ship v2 checkout' },
-    { key: 'peer-enso-0d', name: 'enso-0d         ', status: 'done ', tone: 'warning', tail: 'goal: Leg B money path' },
-    { key: 'peer-legacytradesgroup-ef', name: 'legacytradesgro…', status: 'idle ', tone: 'neutral', tail: 'legacytradesgroup' },
+    { key: 'peer-score-c2', name: 'score-c2        ', status: 'busy', tone: 'success', tail: 'goal: Ship v2 checkout' },
+    { key: 'peer-enso-0d', name: 'enso-0d         ', status: 'done', tone: 'warning', tail: 'goal: Leg B money path' },
+    { key: 'peer-legacytradesgroup-ef', name: 'legacytradesgro…', status: 'idle', tone: 'neutral', tail: 'legacytradesgroup' },
     { key: 'peer-macring-3a', name: 'macring-3a      ', status: 'shell', tone: 'neutral', tail: 'macring' },
   ])
 })

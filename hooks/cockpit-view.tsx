@@ -11,8 +11,9 @@ export type Row = { label: string; text: string; color?: Color }
 const MIN_GOAL = 8
 const MIN_SEG = 4
 const MARK = '◆ flykit'
-// The Button draws "[ " and " ]" around its label (plain would draw the hotkey's "c: " instead),
-// then the mark, " ▸", and a gap before each chip.
+// The toggle Button draws "[ " and " ]" around the mark and " ▸" (plain would draw the hotkey's "c: " instead);
+// the chips follow in a plain Button, a gap before each.
+const SCOPE = 'cockpit'
 export const HEAD = 2 + MARK.length + 2 + GAP + 2
 
 const width = (segs: Seg[]) => chipsWidth(segs.map(s => s.text))
@@ -80,15 +81,19 @@ export function drawCockpit(
   if (segs.length === 0) return null
   return (
     <Box flexDirection="column">
-      <Button key="cockpit" hotkey="c" onPress={toggle}>
-        <Text bold color="claude" hover={{ scope: 'cockpit', backgroundColor: 'claude', color: 'inverseText' }}>
-          {MARK}
-        </Text>
-        <Text bold color="inactive" hover={{ scope: 'cockpit', color: 'claude' }}>
-          {isOpen ? ' ▾' : ' ▸'}
-        </Text>
-        {segs.flatMap((s, i) => [' ', chip(Text, s.text, s.tone, undefined, `seg-${i}`)])}
-      </Button>
+      <Box>
+        <Button key="cockpit" hotkey="c" onPress={toggle}>
+          <Text bold color="claude" hover={{ scope: SCOPE, backgroundColor: 'claude', color: 'inverseText' }}>
+            {MARK}
+          </Text>
+          <Text bold color="inactive" hover={{ scope: SCOPE, color: 'claude' }}>
+            {isOpen ? ' ▾' : ' ▸'}
+          </Text>
+        </Button>
+        <Button key="cockpit-row" plain onPress={toggle}>
+          {segs.flatMap((s, i) => [' ', chip(Text, s.text, s.tone, SCOPE, `seg-${i}`, false)])}
+        </Button>
+      </Box>
       {isOpen &&
         detailRows(c).map((r, i) => (
           <Box key={`row-${i}`}>

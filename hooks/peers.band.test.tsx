@@ -88,6 +88,17 @@ test('the open cockpit lists the peer with its goal and a new-session button', a
   expect(await ui.find({ key: 'peer-web' })).toBeUndefined()
 })
 
+test('a 70-character peer name still draws the whole band', async ($, on) => {
+  const long = 'n'.repeat(70)
+  world(on, 'ok', '', { [`${DIR}/9.json`]: entry('s9', long, 1, '/w/long', 'busy') })
+  const ui = await mount($)
+  await ui.press({ key: 'cockpit' })
+  expect(await ui.find({ key: `peer-${long}` })).toBeDefined()
+  expect(await ui.find({ key: 'new-session' })).toBeDefined()
+  expect(await ui.find({ text: '＋ new session' })).toBeDefined()
+  expect(await ui.find({ text: 'week' })).toBeDefined()
+})
+
 test('pressing a peer fills the prompt with its name', async ($, on) => {
   const w = world(on)
   const ui = await mount($)
