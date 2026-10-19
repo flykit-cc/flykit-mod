@@ -81,6 +81,20 @@ test('band stretches to one line when wide, splits when narrow', () => {
   expect(fitLines(cells, 20).bar).toBe(6)
 })
 
+test('every meter line fits its width, the percent column included', () => {
+  const cell = (key: string, tail: string) => ({ key, label: key, percent: 67.3, tail })
+  const cells = [cell('week', '4.3 under'), cell('today', 'of 13.3%'), cell('5h', '2h10'), cell('fable', '5d14h')]
+  // label, space, bar, " 67.3%", space, tail; three columns between cells
+  const fixed = (c: { label: string; tail: string }) => c.label.length + 1 + 6 + 1 + c.tail.length
+  for (let columns = 40; columns <= 200; columns++) {
+    const { lines, bar } = fitLines(cells, columns)
+    for (const l of lines) {
+      const w = l.reduce((n, c) => n + fixed(c) + bar, 0) + 3 * (l.length - 1)
+      if (w > columns) throw new Error(`${columns} columns gave a ${w}-column line`)
+    }
+  }
+})
+
 const PROGRESS = '## Goal\nShip the cockpit\n\n## Tasks\n- [x] parsers\n- [ ] view\n'
 const QUESTIONS = '## Q1\nstatus: open\nasks: Which key?\n'
 

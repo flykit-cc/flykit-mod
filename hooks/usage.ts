@@ -94,20 +94,27 @@ export function formatDuration(ms: number): string {
   return `${m}m`
 }
 
-// A thin bar `width` cells wide, as runs to color apart: filled, empty, and a pace mark.
-export type BarRun = { kind: 'fill' | 'empty' | 'mark'; text: string }
+// A smooth bar `width` cells wide, as runs to color apart: full cells, the partial cell in eighths,
+// the empty track, and the pace mark (onFill: whether it sits over the filled part).
+export type BarRun = { kind: 'fill' | 'part' | 'empty' | 'mark'; text: string; onFill?: boolean }
+
+const EIGHTHS = ' ▏▎▍▌▋▊▉'
 
 export function bar(percent: number, width: number, mark?: number): BarRun[] {
   const cells = Math.max(1, width)
-  const filled = Math.round((clamp(percent, 0, 100) / 100) * cells)
-  const kinds: BarRun['kind'][] = Array.from({ length: cells }, (_, i) => (i < filled ? 'fill' : 'empty'))
-  if (mark !== undefined) kinds[clamp(Math.round((mark / 100) * cells), 0, cells - 1)] = 'mark'
-  const glyph = { fill: '━', empty: '─', mark: '┃' }
+  const eighths = Math.round((clamp(percent, 0, 100) / 100) * cells * 8)
+  const full = Math.floor(eighths / 8)
+  const at = mark === undefined ? -1 : clamp(Math.round((mark / 100) * cells), 0, cells - 1)
   const runs: BarRun[] = []
-  for (const kind of kinds) {
+  for (let i = 0; i < cells; i++) {
+    const run: BarRun =
+      i === at ? { kind: 'mark', text: '│', onFill: i < full }
+      : i < full ? { kind: 'fill', text: '█' }
+      : i === full && eighths % 8 > 0 ? { kind: 'part', text: EIGHTHS[eighths % 8]! }
+      : { kind: 'empty', text: '░' }
     const last = runs[runs.length - 1]
-    if (last?.kind === kind) last.text += glyph[kind]
-    else runs.push({ kind, text: glyph[kind] })
+    if (last && last.kind === run.kind && (run.kind === 'fill' || run.kind === 'empty')) last.text += run.text
+    else runs.push(run)
   }
   return runs
 }

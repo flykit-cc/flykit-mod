@@ -215,11 +215,14 @@ export const register: Register = on => {
     }
     const qs = cockpit?.questions === 'broken' ? undefined : cockpit?.questions
     const top = qs?.top
+    const head = cockpit && drawCockpit(els, cockpit, columns, isCockpitOpen, toggle, p => void pickPeer($, p), () => void newSession($))
+    const question = top && drawQuestion(els, top, qs!.open, columns, isCockpitOpen, o => void answer($, top.id, o), () => void reply($, top.id))
     return (
       <Box flexDirection="column" paddingX={PAD} paddingTop={1}>
-        {cockpit && drawCockpit(els, cockpit, columns, isCockpitOpen, toggle, p => void pickPeer($, p), () => void newSession($))}
-        {top && drawQuestion(els, top, qs!.open, columns, isCockpitOpen, o => void answer($, top.id, o), () => void reply($, top.id))}
-        {drawMeter(els, view, columns)}
+        {head}
+        {question}
+        {/* One empty row sets the usage bars apart from what is above them. */}
+        <Box marginTop={head || question ? 1 : 0}>{drawMeter(els, view, columns)}</Box>
       </Box>
     )
   })

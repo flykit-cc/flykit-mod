@@ -96,9 +96,19 @@ describe('format', () => {
   })
 
   test('bar fills and marks', () => {
-    expect(barText(bar(50, 10))).toBe('━━━━━─────')
-    expect(barText(bar(50, 10, 80))).toBe('━━━━━───┃─')
-    expect(barText(bar(150, 4))).toBe('━━━━')
-    expect(bar(50, 4, 25).map(r => r.kind)).toEqual(['fill', 'mark', 'empty'])
+    expect(barText(bar(50, 10))).toBe('█████░░░░░')
+    expect(barText(bar(50, 10, 80))).toBe('█████░░░│░')
+    expect(barText(bar(150, 4))).toBe('████')
+    expect(barText(bar(0, 4))).toBe('░░░░')
+    expect(bar(50, 4, 25).map(r => [r.kind, r.text, r.onFill])).toEqual([['fill', '█', undefined], ['mark', '│', true], ['empty', '░░', undefined]])
+    expect(bar(50, 4, 90).map(r => [r.kind, r.onFill])).toEqual([['fill', undefined], ['empty', undefined], ['mark', false]])
+  })
+
+  test('bar draws the partial cell in eighths', () => {
+    expect(barText(bar(55, 10))).toBe('█████▌░░░░')
+    expect(barText(bar(1, 10))).toBe('▏░░░░░░░░░')
+    expect(barText(bar(99.9, 10))).toBe('██████████')
+    expect(bar(55, 10).map(r => r.kind)).toEqual(['fill', 'part', 'empty'])
+    for (let p = 0; p <= 100; p += 0.5) expect([...barText(bar(p, 7, 50))].length).toBe(7)
   })
 })

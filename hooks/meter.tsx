@@ -1,6 +1,6 @@
-import type { Elements, RenderSurface } from 'claude-code'
+import type { Color, Elements, RenderSurface } from 'claude-code'
 
-import { bar, formatDuration, pct, type ModelLimit, type WeekMeter } from './usage'
+import { bar, formatDuration, pct, type BarRun, type ModelLimit, type WeekMeter } from './usage'
 
 export type WeekRow = WeekMeter | { used: number }
 export type FiveHourRow = { used: number; resetInMs: number | undefined }
@@ -11,11 +11,13 @@ export type MeterView =
   | { kind: 'waiting' }
   | { kind: 'ready'; week: WeekRow; fiveHour: FiveHourRow | undefined; models: ModelLimit[] }
 
-type Cell = { key: string; label: string; percent: number; value?: number; mark?: number; tail: string; color?: string; dim?: boolean }
+type Cell = { key: string; label: string; percent: number; value?: number; mark?: number; tail: string; color?: Color; dim?: boolean }
+
+const TRACK = 'subtle'
 
 const GAP = 3
 const MIN_BAR = 6
-const PCT = 5 // " 100%"
+const PCT = 6 // " 67.3%"
 
 const fixedWidth = (c: Cell) => c.label.length + 1 + PCT + 1 + c.tail.length
 
@@ -35,22 +37,26 @@ const paceTail = (ahead: number) => {
   return n === '0' ? 'on pace' : `${n} ${ahead > 0 ? 'over' : 'under'}`
 }
 
+// Fill: success; warning ahead of pace or over today's budget; error at a limit; inactive when stale.
+const tone = (percent: number, isOver = false): Color => (percent >= 100 ? 'error' : isOver ? 'warning' : 'success')
+
 export function meterCells(view: Extract<MeterView, { kind: 'ready' }>): Cell[] {
   const cells: Cell[] = []
   const w = view.week
   if ('pace' in w) {
-    cells.push({ key: 'week', label: 'week', percent: w.used, mark: w.pace, tail: paceTail(w.ahead), color: w.ahead > 0 ? 'yellow' : 'green' })
+    cells.push({ key: 'week', label: 'week', percent: w.used, mark: w.pace, tail: paceTail(w.ahead), color: tone(w.used, w.ahead > 0) })
     const share = w.budgetToday > 0 ? (w.usedToday / w.budgetToday) * 100 : 100
-    cells.push({ key: 'today', label: 'today', percent: share, value: w.usedToday, tail: `of ${pct(w.budgetToday)}`, color: share > 100 ? 'red' : 'green' })
+    cells.push({ key: 'today', label: 'today', percent: share, value: w.usedToday, tail: `of ${pct(w.budgetToday)}`, color: share > 100 ? 'warning' : 'success' })
   } else {
-    cells.push({ key: 'week', label: 'week', percent: w.used, tail: '', color: 'green' })
+    cells.push({ key: 'week', label: 'week', percent: w.used, tail: '', color: tone(w.used) })
   }
   if (view.fiveHour) {
     const r = view.fiveHour.resetInMs
-    cells.push({ key: '5h', label: '5h', percent: view.fiveHour.used, tail: r === undefined ? '' : formatDuration(r), color: 'green' })
+    cells.push({ key: '5h', label: '5h', percent: view.fiveHour.used, tail: r === undefined ? '' : formatDuration(r), color: tone(view.fiveHour.used) })
   }
   for (const m of view.models) {
-    cells.push({ key: `model-${m.name}`, label: m.name.toLowerCase(), percent: m.percent, tail: m.resetInMs === undefined ? '' : formatDuration(m.resetInMs), color: 'green', dim: m.isStale })
+    const tail = m.resetInMs === undefined ? '' : formatDuration(m.resetInMs)
+    cells.push({ key: `model-${m.name}`, label: m.name.toLowerCase(), percent: m.percent, tail, color: m.isStale ? 'inactive' : tone(m.percent), dim: m.isStale })
   }
   return cells
 }
@@ -61,15 +67,25 @@ export function drawMeter(els: Pick<Elements[RenderSurface], 'Box' | 'Text'>, vi
   if (view.kind === 'waiting') return <Text dimColor>usage: waiting for first reply</Text>
 
   const { lines, bar: width } = fitLines(meterCells(view), columns)
+  // Track and fill carry their color as background too, so the bar reads solid in any font.
+  const run = (c: Cell, r: BarRun, i: number) => {
+    const fill = c.color ?? 'success'
+    const [color, bg] = r.kind === 'fill' ? [fill, fill] : r.kind === 'part' ? [fill, TRACK] : r.kind === 'empty' ? [TRACK, TRACK] : ['text', r.onFill ? fill : TRACK]
+    return (
+      <Text key={String(i)} color={color} backgroundColor={bg} bold={r.kind === 'mark'}>
+        {r.text}
+      </Text>
+    )
+  }
   const cell = (c: Cell) => (
     <Box key={c.key}>
-      <Text dimColor>{c.label} </Text>
-      <Text>
-        {bar(c.percent, width, c.mark).map((run, i) =>
-          run.kind === 'fill' ? <Text key={String(i)} color={c.color} dimColor={c.dim}>{run.text}</Text> : <Text key={String(i)} dimColor>{run.text}</Text>,
-        )}
+      <Text bold color="inactive">
+        {c.label + ' '}
       </Text>
-      <Text dimColor={c.dim}>{pct(c.value ?? c.percent).padStart(PCT)}</Text>
+      <Text>{bar(c.percent, width, c.mark).map((r, i) => run(c, r, i))}</Text>
+      <Text bold dimColor={c.dim}>
+        {pct(c.value ?? c.percent).padStart(PCT)}
+      </Text>
       <Text dimColor> {c.tail}</Text>
     </Box>
   )
