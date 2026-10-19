@@ -146,9 +146,12 @@ async function restore($: EngineInterface, original: string): Promise<string> {
   return isFilled ? '' : ` (text not restored: ${original})`
 }
 
-// Ghostty's own command starts the ghostcode picker in the new window.
+// One window in the running Ghostty (its `command` starts the ghostcode picker).
+// Not `open -na`: a second Ghostty instance restores every saved window.
+const NEW_WINDOW = ['osascript', '-e', 'tell application "Ghostty" to new window']
+
 async function newSession($: EngineInterface) {
-  await $.process.run(['open', '-na', 'Ghostty']).catch(() => undefined)
+  await $.process.run(NEW_WINDOW).catch(() => undefined)
 }
 
 export const register: Register = on => {

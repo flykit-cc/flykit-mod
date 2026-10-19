@@ -126,7 +126,7 @@ test('new session opens a Ghostty window', async ($, on) => {
   const ui = await mount($)
   await ui.press({ key: 'cockpit' })
   await ui.press({ key: 'new-session' })
-  expect(w.runs).toContainEqual(['open', '-na', 'Ghostty'])
+  expect(w.runs).toContainEqual(['osascript', '-e', 'tell application "Ghostty" to new window'])
 })
 
 test('a peer that goes from busy to idle shows as done', async ($, on) => {
