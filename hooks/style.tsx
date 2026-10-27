@@ -10,6 +10,23 @@ export const PAD = 2 // a chip's padding: one space each side
 export const GAP = 1 // between chips on a row
 
 export const cut = (s: string, n: number) => (s.length <= n ? s : s.slice(0, Math.max(0, n - 1)) + '…')
+// Breaks at spaces: the first line gets `first` columns, the rest `rest`. A word longer than a line is split.
+export function wrap(text: string, first: number, rest = first): string[] {
+  const lines: string[] = []
+  let left = text.trim()
+  while (left) {
+    const w = Math.max(1, lines.length ? rest : first)
+    if (left.length <= w) {
+      lines.push(left)
+      break
+    }
+    const space = left.slice(0, w + 1).lastIndexOf(' ')
+    const end = space > 0 ? space : w
+    lines.push(left.slice(0, end))
+    left = left.slice(end).trimStart()
+  }
+  return lines
+}
 export const chipWidth = (text: string) => text.length + PAD
 export const chipsWidth = (texts: string[]) => texts.reduce((n, t) => n + chipWidth(t), 0) + GAP * Math.max(0, texts.length - 1)
 

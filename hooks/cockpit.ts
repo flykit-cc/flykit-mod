@@ -2,7 +2,7 @@ import type { Peer } from './peers'
 
 export type Progress = { goal?: string; open: string[]; done: number }
 export type Option = { key: string; text: string }
-export type OpenQuestion = { id: string; asks: string; context?: string; options: Option[]; recommended?: string }
+export type OpenQuestion = { id: string; asks: string; context?: string; options: Option[]; recommended?: string; why?: string }
 export type Questions = { open: number; top?: OpenQuestion } | 'broken'
 export type Git = { branch: string; changed: number; ahead: number }
 export type Agent = { type: string; description: string }
@@ -91,6 +91,7 @@ function toQuestion(b: Block): OpenQuestion {
   const q: OpenQuestion = { id: b.id, asks: b.fields.asks ?? '', options }
   if (b.fields.context) q.context = b.fields.context
   if (rec && options.some(o => o.key === rec)) q.recommended = rec
+  if (b.fields.recommendation) q.why = b.fields.recommendation
   return q
 }
 

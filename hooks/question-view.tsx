@@ -1,57 +1,37 @@
 import type { Elements, RenderSurface } from 'claude-code'
 
 import type { OpenQuestion, Option } from './cockpit'
-import { chip, chipWidth, cut, GAP, PAD } from './style'
+import { chip, chipsWidth, chipWidth, GAP, wrap } from './style'
 
 // No hotkey: a bare digit typed into an empty prompt would press it. Click, or ctrl+x tab then Enter.
-export type QButton = { key: string; label: string; option?: Option } // option undefined = the reply button
+// Nothing is cut: a long question, option or recommendation wraps onto more rows.
+export type QRow = { key: string; chip: string; lines: string[]; option?: Option } // option undefined = the reply button
 
 const INDENT = 2
-const MIN_PER = 12
 const REPLY = '✎ reply'
 const STAR = ' ★'
 
-// id: the warning chip's text; text: the question, cut so chip, space, text and the count fit.
-export function questionHeader(q: OpenQuestion, open: number, columns: number): { id: string; text: string; count?: string } {
+// id: the warning chip's text; lines: the full question, wrapped beside the chip and the count.
+export function questionHeader(q: OpenQuestion, open: number, columns: number): { id: string; lines: string[]; count?: string } {
   const id = `? ${q.id}`
-  const room = columns - chipWidth(id) - 1
-  if (open <= 1) return { id, text: cut(q.asks, room) }
-  const count = `1 of ${open}`
-  return { id, text: cut(q.asks, room - count.length - 2), count }
+  const count = open > 1 ? `1 of ${open}` : undefined
+  const room = columns - chipWidth(id) - 1 - (count ? count.length + 2 : 0)
+  return { id, lines: wrap(q.asks, room), ...(count && { count }) }
 }
 
-// Each option is a chip: its label plus padding, one column from the next.
-export function questionButtons(q: OpenQuestion, columns: number): QButton[][] {
-  const options = q.options
-  const room = columns - INDENT
-  const per = Math.floor((room - chipWidth(REPLY) - (PAD + GAP) * options.length) / options.length)
-  const oneRow = options.length === 0 || per >= MIN_PER
-  const max = oneRow ? per : room - PAD
-  const buttons: QButton[] = options.map(o => {
-    const star = o.key === q.recommended ? STAR : ''
-    return { key: `answer-${o.key}`, label: cut(`${o.key} ${o.text}`, max - star.length) + star, option: o }
-  })
-  buttons.push({ key: 'reply', label: cut(REPLY, room - PAD) })
-  return oneRow ? [buttons] : buttons.map(b => [b])
-}
-
-export function contextLines(context: string, columns: number): string[] {
-  const w = columns - INDENT
-  const lines: string[] = []
-  let rest = context.trim()
-  while (rest && lines.length < 3) {
-    if (rest.length <= w) {
-      lines.push(rest)
-      rest = ''
-      break
-    }
-    const space = rest.slice(0, w + 1).lastIndexOf(' ')
-    const end = space > 0 ? space : w
-    lines.push(rest.slice(0, end))
-    rest = rest.slice(end).trimStart()
-  }
-  if (rest) lines[2] = cut(lines[2]! + '…', w)
-  return lines
+// Short options: one row of chips, each holding its full text. Longer: one option per row,
+// a key chip then its text wrapped beside it. The reply chip comes last either way.
+export function questionRows(q: OpenQuestion, columns: number): { inline: boolean; rows: QRow[] } {
+  const star = (o: Option) => (o.key === q.recommended ? STAR : '')
+  const reply: QRow = { key: 'reply', chip: REPLY, lines: [] }
+  const full = q.options.map(o => `${o.key} ${o.text}${star(o)}`)
+  if (INDENT + chipsWidth([...full, REPLY]) <= columns)
+    return { inline: true, rows: [...q.options.map((o, i) => ({ key: `answer-${o.key}`, chip: full[i]!, lines: [], option: o })), reply] }
+  const keys = q.options.map(o => o.key + star(o))
+  const keyWidth = Math.max(...keys.map(k => k.length))
+  const room = columns - INDENT - chipWidth(''.padEnd(keyWidth)) - GAP
+  const rows = q.options.map((o, i) => ({ key: `answer-${o.key}`, chip: keys[i]!.padEnd(keyWidth), lines: wrap(o.text, room), option: o }))
+  return { inline: false, rows: [...rows, reply] }
 }
 
 export function drawQuestion(
@@ -65,33 +45,57 @@ export function drawQuestion(
 ) {
   const { Box, Text, Button } = els
   const head = questionHeader(q, open, columns)
+  const { inline, rows } = questionRows(q, columns)
+  const press = (r: QRow) => () => (r.option ? onAnswer(r.option) : onReply())
+  const tone = (r: QRow) => (r.option && r.option.key === q.recommended ? 'accent' : 'neutral')
+  const dim = (key: string, text: string) => (
+    <Box key={key} paddingLeft={INDENT} flexDirection="column">
+      {wrap(text, columns - INDENT).map((l, i) => (
+        <Text key={`${key}-${i}`} dimColor>
+          {l}
+        </Text>
+      ))}
+    </Box>
+  )
+  const button = (r: QRow) => (
+    <Button key={r.key} plain onPress={press(r)}>
+      {chip(Text, r.chip, tone(r), r.key)}
+    </Button>
+  )
   return (
     <Box flexDirection="column">
-      <Box width={columns} justifyContent="space-between">
-        <Box>
-          {chip(Text, head.id, 'warning')}
-          <Text bold color="text">
-            {' ' + head.text}
-          </Text>
-        </Box>
-        {head.count && <Text dimColor>{head.count}</Text>}
-      </Box>
-      {showContext &&
-        q.context &&
-        contextLines(q.context, columns).map((l, i) => (
-          <Box key={`ctx-${i}`} paddingLeft={INDENT}>
-            <Text dimColor>{l}</Text>
-          </Box>
-        ))}
-      {questionButtons(q, columns).map((row, i) => (
-        <Box key={`row-${i}`} gap={GAP} paddingLeft={INDENT}>
-          {row.map(b => (
-            <Button key={b.key} plain onPress={() => (b.option ? onAnswer(b.option) : onReply())}>
-              {chip(Text, b.label, b.option && b.option.key === q.recommended ? 'accent' : 'neutral', b.key)}
-            </Button>
+      <Box width={columns}>
+        {chip(Text, head.id, 'warning')}
+        <Text> </Text>
+        <Box flexDirection="column" flexGrow={1}>
+          {head.lines.map((l, i) => (
+            <Text key={`ask-${i}`} bold color="text">
+              {l}
+            </Text>
           ))}
         </Box>
-      ))}
+        {head.count && <Text dimColor>{'  ' + head.count}</Text>}
+      </Box>
+      {showContext && q.context && dim('ctx', q.context)}
+      {inline ? (
+        <Box gap={GAP} paddingLeft={INDENT}>
+          {rows.map(button)}
+        </Box>
+      ) : (
+        rows.map(r => (
+          <Box key={`row-${r.key}`} gap={GAP} paddingLeft={INDENT}>
+            {button(r)}
+            <Box flexDirection="column">
+              {r.lines.map((l, i) => (
+                <Button key={`${r.key}-${i}`} plain onPress={press(r)}>
+                  <Text hover={{ scope: r.key, color: 'claude' }}>{l}</Text>
+                </Button>
+              ))}
+            </Box>
+          </Box>
+        ))
+      )}
+      {q.why && dim('why', '★ ' + q.why)}
     </Box>
   )
 }

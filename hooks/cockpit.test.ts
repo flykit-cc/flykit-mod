@@ -121,6 +121,7 @@ describe('parseQuestions: full open question', () => {
         context: 'The band has a summary line. It opens a detail view.',
         options: [{ key: 'A', text: 'c, short and free' }, { key: 'B', text: 'k, less obvious' }],
         recommended: 'A',
+        why: 'A, nothing else uses c',
       },
     })
   })
