@@ -9,6 +9,9 @@ export type Agent = { type: string; description: string }
 export type Cockpit = { progress?: Progress; questions?: Questions; git?: Git; agents: Agent[]; peers: Peer[] }
 
 // .flow/session-progress.md: goal = first line under "## Goal"; tasks = checkboxes under any "## …tasks" heading.
+// The band is plain text, so markdown marks would show as literal ** and backticks.
+const plain = (s: string) => s.replace(/\*\*|__|`/g, '').trim()
+
 export function parseProgress(text: string): Progress {
   let section = ''
   let goal: string | undefined
@@ -20,11 +23,11 @@ export function parseProgress(text: string): Progress {
       section = heading[1]!.trim()
       continue
     }
-    if (section === 'Goal' && goal === undefined && line.trim()) goal = line.trim()
+    if (section === 'Goal' && goal === undefined && line.trim()) goal = plain(line)
     if (!/tasks/i.test(section)) continue
     const task = /^\s*- \[([ xX])\] (.+)$/.exec(line)
     if (!task) continue
-    if (task[1] === ' ') open.push(task[2]!.trim())
+    if (task[1] === ' ') open.push(plain(task[2]!))
     else done++
   }
   return { goal, open, done }

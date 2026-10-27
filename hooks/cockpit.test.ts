@@ -27,6 +27,12 @@ describe('parseProgress', () => {
     expect(p.done).toBe(1)
   })
 
+  test('strips markdown marks from goal and tasks', () => {
+    const p = parseProgress('## Goal\nFinish **the** `flykit` __mod__\n## Tasks\n- [ ] click `＋ new session`\n')
+    expect(p.goal).toBe('Finish the flykit mod')
+    expect(p.open).toEqual(['click ＋ new session'])
+  })
+
   test('reads "## Tasks" too, and no goal heading gives no goal', () => {
     const p = parseProgress('## Tasks\n- [ ] one\n- [X] two\n')
     expect(p.goal).toBeUndefined()
