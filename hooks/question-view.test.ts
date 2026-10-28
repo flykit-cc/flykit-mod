@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 
 import type { OpenQuestion } from './cockpit'
-import { questionHeader, questionRows } from './question-view'
+import { block, fromAsk, questionHeader, questionRows } from './question-view'
 import { chipsWidth, wrap } from './style'
 
 const Q: OpenQuestion = {
@@ -56,4 +56,30 @@ test('wrap breaks at spaces, keeps every word, splits a word longer than a line'
   expect(lines.join(' ')).toBe(text)
   expect(wrap('abcdefghij', 4)).toEqual(['abcd', 'efgh', 'ij'])
   expect(wrap('a bb cc', 1, 2)).toEqual(['a', 'bb', 'cc'])
+})
+
+test('block keeps line breaks, blank lines and indents, and wraps each line', () => {
+  expect(block('Title\n\n- one\n  two three four', 10)).toEqual(['Title', '', '- one', '  two', '  three', '  four'])
+})
+
+test('a dialog question becomes a band question: numbered, star for (Recommended), preview as briefing', () => {
+  const { q, labels } = fromAsk({
+    question: 'Publish it?',
+    header: 'Hosting',
+    options: [
+      { label: 'Publish (Recommended)', description: 'Goes to Confluence now.', preview: 'FILE\n- PostgreSQL' },
+      { label: 'I want changes', description: 'Nothing is published.' },
+    ],
+  })
+  expect(q).toEqual({
+    id: 'Hosting',
+    asks: 'Publish it?',
+    options: [
+      { key: '1', text: 'Publish: Goes to Confluence now.' },
+      { key: '2', text: 'I want changes: Nothing is published.' },
+    ],
+    recommended: '1',
+    context: 'FILE\n- PostgreSQL',
+  })
+  expect(labels).toEqual(['Publish (Recommended)', 'I want changes'])
 })

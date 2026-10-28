@@ -152,3 +152,43 @@ test('long options show in full, one per row, and a click on the text answers', 
   await ui.press({ key: 'answer-A-1' })
   expect(w.writes[0]!.text).toContain(`answer: A: ${long} (flykit band)`)
 })
+
+const ASK = {
+  tool: 'AskUserQuestion' as const,
+  tool_use_id: 'toolu_1',
+  questions: [
+    {
+      question: 'Publish the hosting page?',
+      header: 'Hosting',
+      multiSelect: false,
+      options: [
+        { label: 'Publish (Recommended)', description: 'Goes to Confluence now.', preview: 'WHAT IT SAYS\n- Database: PostgreSQL\n- Hosting: Hetzner\n- Plan B: dedicated servers\n- Login stays Microsoft Entra' },
+        { label: 'I want changes', description: 'Nothing is published.' },
+      ],
+    },
+  ],
+}
+
+test('a Claude question dialog draws in the band in full, and a click answers it', async ($, on) => {
+  const w = world(on, {})
+  const ui = await mount($)
+  const r = await $.tool.call(ASK)
+  expect('result' in r && r.result).toMatchObject({ answers: {} })
+  expect(await ui.find({ text: 'Publish the hosting page?' })).toBeDefined()
+  expect(await ui.find({ text: '- Login stays Microsoft Entra' })).toBeDefined()
+  await ui.press({ key: 'answer-1' })
+  expect(w.submits).toEqual(['Answer to "Publish the hosting page?": Publish (Recommended)'])
+  expect(await ui.find({ text: 'Publish the hosting page?' })).toBeUndefined()
+})
+
+test('several questions or multi-select keep the engine dialog', async ($, on) => {
+  world(on, {})
+  on('tool.call', () => ({ deny: 'engine dialog' }))
+  const ui = await mount($)
+  const q = ASK.questions[0]!
+  for (const questions of [[{ ...q, multiSelect: true }], [q, q]]) {
+    const r = await $.tool.call({ ...ASK, questions })
+    expect(r).toEqual({ deny: 'engine dialog' })
+  }
+  expect(await ui.find({ text: 'Publish the hosting page?' })).toBeUndefined()
+})

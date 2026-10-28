@@ -1,8 +1,8 @@
 import type { EngineInterface, Register } from 'claude-code'
 
-import { answerQuestion, parseGitStatus, parseProgress, parseQuestions, type Cockpit, type Option } from './cockpit'
+import { answerQuestion, parseGitStatus, parseProgress, parseQuestions, type Cockpit, type OpenQuestion, type Option } from './cockpit'
 import { drawCockpit } from './cockpit-view'
-import { drawQuestion } from './question-view'
+import { drawQuestion, fromAsk } from './question-view'
 import { drawMeter, type FiveHourRow, type MeterView, type WeekRow } from './meter'
 import { livePids, parseSession, projectOf, track, type Peer, type PeerMemory, type SessionEntry } from './peers'
 import { parseModelCache, rollDay, weekMeter, type DayState } from './usage'
@@ -19,6 +19,11 @@ let cockpit: Cockpit | undefined
 let isHidden = false
 let isCockpitOpen = false
 let peerMemory: PeerMemory = {}
+// A question Claude asked with AskUserQuestion, waiting in the band for a click.
+let ask: { q: OpenQuestion; labels: string[] } | undefined
+
+const ASKED = 'Shown in the flykit band above the prompt, in full. The user answers there; the answer arrives as their next message.'
+const WAIT = 'End your turn now: no more tool calls and no assumed answer. The answer comes from the flykit band.'
 
 // afterReply: a reply came back, so empty rate limits mean 'no plan limits', not 'not yet'.
 async function refresh($: EngineInterface, afterReply = false) {
@@ -123,6 +128,15 @@ async function answer($: EngineInterface, id: string, o: Option) {
   await refreshCockpit($)
 }
 
+// Sends the picked label as the user's message; it queues behind a running turn.
+async function answerAsk($: EngineInterface, o: Option) {
+  const a = ask
+  if (!a) return
+  ask = undefined
+  $.ui.invalidate('ui.render')
+  await $.prompt.submit({ text: `Answer to "${a.q.asks}": ${a.labels[Number(o.key) - 1]}` }).catch(() => undefined)
+}
+
 // Prefixes the draft with the id instead of replacing it, so nothing typed is lost.
 async function reply($: EngineInterface, id: string) {
   const text = await readDraft($)
@@ -178,6 +192,11 @@ export const register: Register = on => {
   // `@<live peer name> text` typed by the user goes to that session, not to Claude.
   // Names may hold spaces, so match the longest live name, not a regex word.
   on('prompt.submit', async ($, e, next) => {
+    // A typed message answers or moves past the band's question.
+    if (ask && !e.command && e.origin?.kind === 'composer') {
+      ask = undefined
+      $.ui.invalidate('ui.render')
+    }
     if (e.command || (e.origin && e.origin.kind !== 'composer') || !e.text.startsWith('@')) return next(e)
     const peers = await readPeers($, await $.clock.now())
     const named = peers.filter(p => e.text.startsWith('@' + p.name) && /\s/.test(e.text.charAt(p.name.length + 1)))
@@ -198,6 +217,17 @@ export const register: Register = on => {
     return refuse(`✗ not sent to ${peer.name}: ${reason}`)
   })
 
+  // Claude's own question dialog draws in the band instead: in full, where the dialog cuts long text.
+  // Several questions, multi-select, a subagent's or a plugin's $.ui.ask (no tool_use_id) keep the dialog.
+  on('tool.call', { tool: 'AskUserQuestion' }, async ($, e, next) => {
+    if (e.tool !== 'AskUserQuestion' || isHidden || !e.tool_use_id || e.agentId) return next(e)
+    const [one, ...more] = e.questions
+    if (!one || more.length || one.multiSelect) return next(e)
+    ask = fromAsk(one)
+    $.ui.invalidate('ui.render')
+    return { result: { questions: e.questions, answers: {}, response: ASKED }, context: [WAIT] }
+  })
+
   on('command.run', { command: 'flykit' }, async $ => {
     isHidden = !isHidden
     $.ui.invalidate('ui.render')
@@ -216,7 +246,9 @@ export const register: Register = on => {
     const qs = cockpit?.questions === 'broken' ? undefined : cockpit?.questions
     const top = qs?.top
     const head = cockpit && drawCockpit(els, cockpit, columns, isCockpitOpen, toggle, p => void pickPeer($, p), () => void newSession($))
-    const question = top && drawQuestion(els, top, qs!.open, columns, isCockpitOpen, o => void answer($, top.id, o), () => void reply($, top.id))
+    const question = ask
+      ? drawQuestion(els, ask.q, 1, columns, true, o => void answerAsk($, o), () => void reply($, ask!.q.id))
+      : top && drawQuestion(els, top, qs!.open, columns, isCockpitOpen, o => void answer($, top.id, o), () => void reply($, top.id))
     return (
       <Box flexDirection="column" paddingX={PAD} paddingTop={1}>
         {head}

@@ -34,6 +34,32 @@ export function questionRows(q: OpenQuestion, columns: number): { inline: boolea
   return { inline: false, rows: [...rows, reply] }
 }
 
+// Keeps the text's own line breaks and indents (a briefing with lists), wrapping each line in the room left.
+export function block(text: string, columns: number): string[] {
+  return text.split('\n').flatMap(line => {
+    const indent = /^\s*/.exec(line)![0]
+    return line.trim() ? wrap(line, columns - indent.length).map(l => indent + l) : ['']
+  })
+}
+
+type AskInput = { question: string; header: string; options: { label: string; description?: string; preview?: string }[] }
+const RECOMMENDED = / \(Recommended\)$/
+
+// A question Claude opened as a dialog, drawn as a band question: keys 1, 2, …; the star replaces
+// "(Recommended)"; the first option's preview is the briefing. labels: what a press answers.
+export function fromAsk(a: AskInput): { q: OpenQuestion; labels: string[] } {
+  const options = a.options.map((o, i) => {
+    const label = o.label.replace(RECOMMENDED, '')
+    return { key: String(i + 1), text: o.description ? `${label}: ${o.description}` : label }
+  })
+  const q: OpenQuestion = { id: a.header, asks: a.question, options }
+  const rec = a.options.findIndex(o => RECOMMENDED.test(o.label))
+  if (rec >= 0) q.recommended = String(rec + 1)
+  const preview = a.options.find(o => o.preview)?.preview
+  if (preview) q.context = preview
+  return { q, labels: a.options.map(o => o.label) }
+}
+
 export function drawQuestion(
   els: Pick<Elements[RenderSurface], 'Box' | 'Text' | 'Button'>,
   q: OpenQuestion,
@@ -50,9 +76,9 @@ export function drawQuestion(
   const tone = (r: QRow) => (r.option && r.option.key === q.recommended ? 'accent' : 'neutral')
   const dim = (key: string, text: string) => (
     <Box key={key} paddingLeft={INDENT} flexDirection="column">
-      {wrap(text, columns - INDENT).map((l, i) => (
+      {block(text, columns - INDENT).map((l, i) => (
         <Text key={`${key}-${i}`} dimColor>
-          {l}
+          {l || ' '}
         </Text>
       ))}
     </Box>
