@@ -42,6 +42,13 @@ export function block(text: string, columns: number): string[] {
   })
 }
 
+// A "# Title" or an all-caps line ("WHAT CHANGES") is a heading: drawn bold, marks dropped.
+export function heading(line: string): string | undefined {
+  const t = line.trim()
+  if (t.startsWith('#')) return t.replace(/^#+\s*/, '')
+  return /[A-Z]{2}/.test(t) && t === t.toUpperCase() && !/^[-*\d]/.test(t) ? t : undefined
+}
+
 type AskInput = { question: string; header: string; options: { label: string; description?: string; preview?: string }[] }
 const RECOMMENDED = / \(Recommended\)$/
 
@@ -56,7 +63,7 @@ export function fromAsk(a: AskInput): { q: OpenQuestion; labels: string[] } {
   const rec = a.options.findIndex(o => RECOMMENDED.test(o.label))
   if (rec >= 0) q.recommended = String(rec + 1)
   const preview = a.options.find(o => o.preview)?.preview
-  if (preview) q.context = preview
+  if (preview) q.context = preview.replace(/\*\*|`/g, '')
   return { q, labels: a.options.map(o => o.label) }
 }
 
@@ -75,13 +82,16 @@ export function drawQuestion(
   const { inline, rows } = questionRows(q, columns)
   const press = (r: QRow) => () => (r.option ? onAnswer(r.option) : onReply())
   const tone = (r: QRow) => (r.option && r.option.key === q.recommended ? 'accent' : 'neutral')
-  const dim = (key: string, text: string) => (
+  const brief = (key: string, text: string) => (
     <Box key={key} paddingLeft={INDENT} flexDirection="column">
-      {block(text, columns - INDENT).map((l, i) => (
-        <Text key={`${key}-${i}`} dimColor>
-          {l || ' '}
-        </Text>
-      ))}
+      {block(text, columns - INDENT).map((l, i) => {
+        const head = heading(l)
+        return (
+          <Text key={`${key}-${i}`} bold={head !== undefined} color="text">
+            {head ?? (l || ' ')}
+          </Text>
+        )
+      })}
     </Box>
   )
   const button = (r: QRow) => (
@@ -126,8 +136,8 @@ export function drawQuestion(
           </Box>
         ))
       )}
-      {q.why && dim('why', '★ ' + q.why)}
-      {showContext && q.context && <Box marginTop={1}>{dim('ctx', q.context)}</Box>}
+      {q.why && brief('why', '★ ' + q.why)}
+      {showContext && q.context && <Box marginTop={1}>{brief('ctx', q.context)}</Box>}
     </Box>
   )
 }

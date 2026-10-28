@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 
 import type { OpenQuestion } from './cockpit'
-import { block, fromAsk, questionHeader, questionRows } from './question-view'
+import { block, fromAsk, heading, questionHeader, questionRows } from './question-view'
 import { chipsWidth, wrap } from './style'
 
 const Q: OpenQuestion = {
@@ -82,4 +82,12 @@ test('a dialog question becomes a band question: numbered, star for (Recommended
     context: 'FILE\n- PostgreSQL',
   })
   expect(labels).toEqual(['Publish (Recommended)', 'I want changes'])
+})
+
+test('heading: # lines and all-caps lines, not bullets or plain text', () => {
+  expect(heading('# Why')).toBe('Why')
+  expect(heading('WHAT CHANGES')).toBe('WHAT CHANGES')
+  expect(heading('- OK')).toBeUndefined()
+  expect(heading('Plain text')).toBeUndefined()
+  expect(heading('')).toBeUndefined()
 })
