@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 
 import type { OpenQuestion } from './cockpit'
-import { block, fromAsk, heading, questionHeader, questionRows } from './question-view'
+import { block, fromAsk, fromTool, heading, questionHeader, questionRows } from './question-view'
 import { chipsWidth, wrap } from './style'
 
 const Q: OpenQuestion = {
@@ -20,32 +20,62 @@ test('header: full question, count when more than one is open', () => {
   expect(h.lines).toEqual(['Which key', 'opens the', 'cockpit?'])
 })
 
-test('short options: one row of chips with full text, star on the recommended, reply last', () => {
-  const { inline, rows } = questionRows(Q, 80)
-  expect(inline).toBe(true)
+test('one option per row: key chip, star on the recommended, reply last', () => {
+  const { labelWidth, rows } = questionRows(Q, 80)
+  expect(labelWidth).toBe(78 - 5 - 1) // no effects: the label takes the room (indent 2, chip "★ A" 5, gap 1)
   expect(rows.map(r => [r.key, r.chip])).toEqual([
-    ['answer-A', 'A c, short and free ★'],
-    ['answer-B', 'B k'],
+    ['answer-A', '★ A'],
+    ['answer-B', '  B'],
     ['reply', '✎ reply'],
   ])
+  expect(rows[0]!.lines).toEqual([{ label: 'c, short and free', effect: '' }])
   expect(rows[2]!.option).toBeUndefined()
-  expect(rows[0]!.option).toEqual({ key: 'A', text: 'c, short and free' })
-  expect(2 + chipsWidth(rows.map(r => r.chip))).toBeLessThanOrEqual(80)
 })
 
-test('long options: one per row, nothing cut, every line fits', () => {
-  const a = 'alpha '.repeat(30).trim()
-  const long: OpenQuestion = { id: 'Q1', asks: 'x', options: [{ key: 'A', text: a }, { key: 'B', text: 'b' }], recommended: 'B' }
-  const { inline, rows } = questionRows(long, 40)
-  expect(inline).toBe(false)
-  expect(rows.map(r => r.chip)).toEqual(['A  ', 'B ★', '✎ reply'])
-  expect(rows[0]!.lines.join(' ')).toBe(a)
-  // indent 2 + key chip 5 + gap 1 = 8 columns before the text
-  for (const l of rows[0]!.lines) expect(8 + l.length).toBeLessThanOrEqual(40)
+test('effects line up in their own column; nothing cut', () => {
+  const e = 'GitHub gets the band questions and everyone who installs it does too'
+  const q: OpenQuestion = { id: 'Push', asks: 'x', options: [{ key: '1', text: 'Push flykit-mod', effect: e }, { key: '2', text: 'Not yet', effect: 'nothing leaves' }] }
+  const { labelWidth, rows } = questionRows(q, 60)
+  expect(labelWidth).toBe(15)
+  expect(rows[0]!.lines.map(l => l.effect).join(' ')).toBe(e)
+  expect(rows[0]!.lines[0]!.label).toBe('Push flykit-mod')
+  // indent 2 + chip 3 + gap 1 + label 15 + space 1 = 22 before the effect
+  for (const l of rows[0]!.lines) expect(22 + l.effect.length).toBeLessThanOrEqual(60)
+})
+
+test('too narrow for two columns: the effect goes under its label', () => {
+  const q: OpenQuestion = { id: 'Push', asks: 'x', options: [{ key: '1', text: 'Push now', effect: 'GitHub gets it' }, { key: '2', text: 'Wait', effect: 'nothing' }] }
+  const { labelWidth, rows } = questionRows(q, 30)
+  expect(labelWidth).toBe(0)
+  expect(rows[0]!.lines).toEqual([{ label: 'Push now', effect: '' }, { label: '', effect: 'GitHub gets it' }])
 })
 
 test('no options: only reply', () => {
   expect(questionRows({ id: 'Q2', asks: 'free?', options: [] }, 80).rows).toEqual([{ key: 'reply', chip: '✎ reply', lines: [] }])
+})
+
+test('the ask tool input becomes a band question; bad input is refused with a reason', () => {
+  const ok = fromTool({
+    topic: 'Push',
+    question: 'What should I push?',
+    options: [{ label: 'Push', effect: 'GitHub gets it', recommended: true }, { label: 'Not yet', effect: 'nothing leaves' }, { label: 'Both' }],
+    because: 'it is ready',
+    context: '- 3 commits',
+  })
+  expect(ok).toEqual({
+    q: {
+      id: 'Push',
+      asks: 'What should I push?',
+      options: [{ key: '1', text: 'Push', effect: 'GitHub gets it' }, { key: '2', text: 'Not yet', effect: 'nothing leaves' }, { key: '3', text: 'Both' }],
+      recommended: '1',
+      why: '1 because: it is ready',
+      context: '- 3 commits',
+    },
+    labels: ['Push', 'Not yet', 'Both'],
+  })
+  expect(fromTool({ question: 'x?', options: [{ label: 'a' }] })).toBe('give 2 to 6 options')
+  expect(fromTool({ question: '', options: [] })).toBe('question is empty')
+  expect(fromTool({ question: 'x?', options: [{ label: 'a' }, { label: ' ' }] })).toBe('every option needs a label')
 })
 
 test('wrap breaks at spaces, keeps every word, splits a word longer than a line', () => {
@@ -75,8 +105,8 @@ test('a dialog question becomes a band question: numbered, star for (Recommended
     id: 'Hosting',
     asks: 'Publish it?',
     options: [
-      { key: '1', text: 'Publish: Goes to Confluence now.' },
-      { key: '2', text: 'I want changes: Nothing is published.' },
+      { key: '1', text: 'Publish', effect: 'Goes to Confluence now.' },
+      { key: '2', text: 'I want changes', effect: 'Nothing is published.' },
     ],
     recommended: '1',
     context: 'FILE\n- PostgreSQL',

@@ -1,8 +1,8 @@
 import type { EngineInterface, Register } from 'claude-code'
 
-import { answerQuestion, parseGitStatus, parseProgress, parseQuestions, type Cockpit, type OpenQuestion, type Option } from './cockpit'
+import { answerQuestion, parseGitStatus, parseProgress, parseQuestions, type Cockpit, type Option } from './cockpit'
 import { drawCockpit } from './cockpit-view'
-import { drawQuestion, fromAsk } from './question-view'
+import { ASK_TOOL, drawQuestion, fromAsk, fromTool, type Asked } from './question-view'
 import { drawMeter, type FiveHourRow, type MeterView, type WeekRow } from './meter'
 import { livePids, parseSession, projectOf, track, type Peer, type PeerMemory, type SessionEntry } from './peers'
 import { parseModelCache, rollDay, weekMeter, type DayState } from './usage'
@@ -19,8 +19,9 @@ let cockpit: Cockpit | undefined
 let isHidden = false
 let isCockpitOpen = false
 let peerMemory: PeerMemory = {}
-// A question Claude asked with AskUserQuestion, waiting in the band for a click.
-let ask: { q: OpenQuestion; labels: string[] } | undefined
+// A question Claude asked, waiting in the band for a click. Saved per session, so a reload or restart keeps it.
+let ask: Asked | undefined
+let isAskLoaded = false
 
 const ASKED = 'Shown in the flykit band above the prompt, in full. The user answers there; the answer arrives as their next message.'
 const WAIT = 'End your turn now: no more tool calls and no assumed answer. The answer comes from the flykit band.'
@@ -128,16 +129,33 @@ async function answer($: EngineInterface, id: string, o: Option) {
   await refreshCockpit($)
 }
 
-function closeAsk($: EngineInterface) {
-  ask = undefined
+// ponytail: one store key per session; a session that ends with a question open leaves its key behind.
+const askKey = async ($: EngineInterface) => 'ask:' + (await $.session.id())
+
+async function setAsk($: EngineInterface, a: Asked | undefined) {
+  ask = a
+  isAskLoaded = true
   $.ui.invalidate('ui.render')
+  await askKey($)
+    .then(key => (a ? $.store.set(key, a) : $.store.delete(key)))
+    .catch(() => undefined)
+}
+
+const closeAsk = ($: EngineInterface) => void setAsk($, undefined)
+
+async function loadAsk($: EngineInterface) {
+  if (isAskLoaded) return
+  isAskLoaded = true
+  const saved = await askKey($).then(k => $.store.get(k)).catch(() => undefined)
+  ask = (saved as Asked | undefined) ?? ask
+  if (ask) $.ui.invalidate('ui.render')
 }
 
 // Sends the picked label as the user's message; it queues behind a running turn.
 async function answerAsk($: EngineInterface, o: Option) {
   const a = ask
   if (!a) return
-  closeAsk($)
+  await setAsk($, undefined)
   await $.prompt.submit({ text: `Answer to "${a.q.asks}": ${a.labels[Number(o.key) - 1]}` }).catch(() => undefined)
 }
 
@@ -175,6 +193,8 @@ async function newSession($: EngineInterface) {
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     await $.command.register({ name: 'flykit', description: 'Show or hide the flykit band' })
+    await $.tool.register(ASK_TOOL).catch(() => undefined)
+    await loadAsk($)
     await Promise.all([refresh($), refreshCockpit($)])
     $.clock.every(60_000, () => refresh($))
     $.clock.every(10_000, () => refreshCockpit($))
@@ -197,10 +217,7 @@ export const register: Register = on => {
   // Names may hold spaces, so match the longest live name, not a regex word.
   on('prompt.submit', async ($, e, next) => {
     // A typed answer from the reply button ("<header>: …") settles the band's question; other messages leave it.
-    if (ask && !e.command && e.origin?.kind === 'composer' && e.text.startsWith(`${ask.q.id}:`)) {
-      ask = undefined
-      $.ui.invalidate('ui.render')
-    }
+    if (ask && !e.command && e.origin?.kind === 'composer' && e.text.startsWith(`${ask.q.id}:`)) await setAsk($, undefined)
     if (e.command || (e.origin && e.origin.kind !== 'composer') || !e.text.startsWith('@')) return next(e)
     const peers = await readPeers($, await $.clock.now())
     const named = peers.filter(p => e.text.startsWith('@' + p.name) && /\s/.test(e.text.charAt(p.name.length + 1)))
@@ -227,9 +244,16 @@ export const register: Register = on => {
     if (e.tool !== 'AskUserQuestion' || isHidden || !e.tool_use_id || e.agentId) return next(e)
     const [one, ...more] = e.questions
     if (!one || more.length || one.multiSelect) return next(e)
-    ask = fromAsk(one)
-    $.ui.invalidate('ui.render')
+    await setAsk($, fromAsk(one))
     return { result: { questions: e.questions, answers: {}, response: ASKED }, context: [WAIT] }
+  })
+
+  on('tool.call', { tool: /^mcp__flykit__ask$/ }, async ($, e) => {
+    if (e.agentId) return { deny: 'Subagents never ask the user: put the question in your report under "Questions raised".' }
+    const asked = fromTool(e as unknown as Record<string, unknown>)
+    if (typeof asked === 'string') return { deny: `Not shown: ${asked}.` }
+    await setAsk($, asked)
+    return { result: ASKED, context: [WAIT] }
   })
 
   on('command.run', { command: 'flykit' }, async $ => {
@@ -240,6 +264,7 @@ export const register: Register = on => {
 
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     if (isHidden || e.props.hasSurvey) return next(e)
+    if (!isAskLoaded) void loadAsk($)
     const els = $.ui.resolve(e)
     const { Box } = els
     const columns = e.props.bodyColumns - 2 * PAD

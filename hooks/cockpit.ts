@@ -1,7 +1,7 @@
 import type { Peer } from './peers'
 
 export type Progress = { goal?: string; open: string[]; done: number }
-export type Option = { key: string; text: string }
+export type Option = { key: string; text: string; effect?: string } // effect: what picking it does, its own column
 export type OpenQuestion = { id: string; asks: string; context?: string; options: Option[]; recommended?: string; why?: string }
 export type Questions = { open: number; top?: OpenQuestion } | 'broken'
 export type Git = { branch: string; changed: number; ahead: number }

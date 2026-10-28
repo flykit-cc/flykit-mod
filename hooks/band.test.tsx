@@ -12,10 +12,11 @@ const props = { hasSurvey: false, isWorking: false, maxRows: 10, bodyColumns: 10
 type World = { writes: { path: string; text: string }[]; submits: string[]; fills: string[] }
 
 // files: paths relative to the cwd; fs.write updates them so the next read sees the answer.
-function world(on: On, files: Record<string, string>, denyWrite = false, draft = ''): World {
+function world(on: On, files: Record<string, string>, denyWrite = false, draft = '', store: Record<string, unknown> = {}): World {
   const w: World = { writes: [], submits: [], fills: [] }
   mock.clock(on, { now: NOW })
-  mock.store(on)
+  mock.store(on, store)
+  on('session.id', () => ({ value: 's1' }))
   mock.env(on, {})
   on('session.measure', ($, e) => ({ changed: e.changed }))
   on('session.usage', () => ({ value: usage }))
@@ -204,4 +205,43 @@ test('band question: a plain message keeps it, a reply or ✕ closes it', async 
   await $.tool.call(ASK)
   await ui.press({ key: 'close' })
   expect(await ui.find({ text: 'Publish the hosting page?' })).toBeUndefined()
+})
+
+const TOOL = {
+  tool: 'mcp__flykit__ask',
+  tool_use_id: 'toolu_2',
+  topic: 'Push',
+  question: 'What should I push?',
+  options: [
+    { label: 'Push flykit-mod', effect: 'GitHub gets band questions', recommended: true },
+    { label: 'Push + release', effect: 'other flow users get the rule' },
+    { label: 'Not yet', effect: 'nothing leaves this machine' },
+  ],
+  because: 'the release is the flow session job',
+}
+
+test('flykit ask tool: drawn in the band with effects and the reason, saved, a click answers', async ($, on) => {
+  const w = world(on, {})
+  const ui = await mount($)
+  const r = await $.tool.call(TOOL as never)
+  expect('result' in r).toBe(true)
+  expect(await ui.find({ text: 'What should I push?' })).toBeDefined()
+  expect(await ui.find({ text: /other flow users get the rule/ })).toBeDefined()
+  expect(await ui.find({ text: /★ 1 because: the release/ })).toBeDefined()
+  await ui.press({ key: 'answer-3' })
+  expect(w.submits).toEqual(['Answer to "What should I push?": Not yet'])
+})
+
+test('flykit ask tool: a subagent is refused, bad input is refused', async ($, on) => {
+  world(on, {})
+  await mount($)
+  expect(await $.tool.call({ ...TOOL, agentId: 'a1' } as never)).toEqual({ deny: 'Subagents never ask the user: put the question in your report under "Questions raised".' })
+  expect(await $.tool.call({ ...TOOL, options: [] } as never)).toEqual({ deny: 'Not shown: give 2 to 6 options.' })
+})
+
+test('a saved question comes back after a reload', async ($, on) => {
+  const saved = { q: { id: 'Push', asks: 'Saved one?', options: [{ key: '1', text: 'yes' }, { key: '2', text: 'no' }] }, labels: ['yes', 'no'] }
+  world(on, {}, false, '', { 'ask:s1': saved })
+  const ui = await mount($)
+  expect(await ui.find({ text: 'Saved one?' })).toBeDefined()
 })
