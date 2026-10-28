@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 
 import type { OpenQuestion } from './cockpit'
-import { block, fromAsk, fromTool, heading, questionHeader, questionRows } from './question-view'
+import { block, heading, questionHeader, questionRows } from './question-view'
 import { chipsWidth, wrap } from './style'
 
 const Q: OpenQuestion = {
@@ -54,30 +54,6 @@ test('no options: only reply', () => {
   expect(questionRows({ id: 'Q2', asks: 'free?', options: [] }, 80).rows).toEqual([{ key: 'reply', chip: '✎ reply', lines: [] }])
 })
 
-test('the ask tool input becomes a band question; bad input is refused with a reason', () => {
-  const ok = fromTool({
-    topic: 'Push',
-    question: 'What should I push?',
-    options: [{ label: 'Push', effect: 'GitHub gets it', recommended: true }, { label: 'Not yet', effect: 'nothing leaves' }, { label: 'Both' }],
-    because: 'it is ready',
-    context: '- 3 commits',
-  })
-  expect(ok).toEqual({
-    q: {
-      id: 'Push',
-      asks: 'What should I push?',
-      options: [{ key: '1', text: 'Push', effect: 'GitHub gets it' }, { key: '2', text: 'Not yet', effect: 'nothing leaves' }, { key: '3', text: 'Both' }],
-      recommended: '1',
-      why: '1 because: it is ready',
-      context: '- 3 commits',
-    },
-    labels: ['Push', 'Not yet', 'Both'],
-  })
-  expect(fromTool({ question: 'x?', options: [{ label: 'a' }] })).toBe('give 2 to 6 options')
-  expect(fromTool({ question: '', options: [] })).toBe('question is empty')
-  expect(fromTool({ question: 'x?', options: [{ label: 'a' }, { label: ' ' }] })).toBe('every option needs a label')
-})
-
 test('wrap breaks at spaces, keeps every word, splits a word longer than a line', () => {
   expect(wrap('one two three', 80)).toEqual(['one two three'])
   const text = 'word '.repeat(60).trim()
@@ -90,28 +66,6 @@ test('wrap breaks at spaces, keeps every word, splits a word longer than a line'
 
 test('block keeps line breaks, blank lines and indents, and wraps each line', () => {
   expect(block('Title\n\n- one\n  two three four', 10)).toEqual(['Title', '', '- one', '  two', '  three', '  four'])
-})
-
-test('a dialog question becomes a band question: numbered, star for (Recommended), preview as briefing', () => {
-  const { q, labels } = fromAsk({
-    question: 'Publish it?',
-    header: 'Hosting',
-    options: [
-      { label: 'Publish (Recommended)', description: 'Goes to Confluence now.', preview: 'FILE\n- PostgreSQL' },
-      { label: 'I want changes', description: 'Nothing is published.' },
-    ],
-  })
-  expect(q).toEqual({
-    id: 'Hosting',
-    asks: 'Publish it?',
-    options: [
-      { key: '1', text: 'Publish', effect: 'Goes to Confluence now.' },
-      { key: '2', text: 'I want changes', effect: 'Nothing is published.' },
-    ],
-    recommended: '1',
-    context: 'FILE\n- PostgreSQL',
-  })
-  expect(labels).toEqual(['Publish (Recommended)', 'I want changes'])
 })
 
 test('heading: # lines and all-caps lines, not bullets or plain text', () => {

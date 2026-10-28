@@ -12,11 +12,11 @@ const INDENT = 2
 const REPLY = '✎ reply'
 const MIN_EFFECT = 16 // narrower than this, an option's effect goes under its label
 
-// id: the warning chip's text; lines: the full question, wrapped beside the chip, the count and ✕.
-export function questionHeader(q: OpenQuestion, open: number, columns: number, close = false): { id: string; lines: string[]; count?: string } {
+// id: the warning chip's text; lines: the full question, wrapped beside the chip and the count.
+export function questionHeader(q: OpenQuestion, open: number, columns: number): { id: string; lines: string[]; count?: string } {
   const id = `? ${q.id}`
   const count = open > 1 ? `1 of ${open}` : undefined
-  const room = columns - chipWidth(id) - 1 - (count ? count.length + 2 : 0) - (close ? chipWidth('✕') : 0)
+  const room = columns - chipWidth(id) - 1 - (count ? count.length + 2 : 0)
   return { id, lines: wrap(q.asks, room), ...(count && { count }) }
 }
 
@@ -56,82 +56,6 @@ export function heading(line: string): string | undefined {
   return /[A-Z]{2}/.test(t) && t === t.toUpperCase() && !/^[-*\d]/.test(t) ? t : undefined
 }
 
-type AskInput = { question: string; header: string; options: { label: string; description?: string; preview?: string }[] }
-const RECOMMENDED = / \(Recommended\)$/
-
-// A question Claude opened as a dialog, drawn as a band question: keys 1, 2, …; the star replaces
-// "(Recommended)"; the first option's preview is the briefing. labels: what a press answers.
-export function fromAsk(a: AskInput): Asked {
-  const options = a.options.map((o, i) => {
-    const label = o.label.replace(RECOMMENDED, '')
-    return { key: String(i + 1), text: label, ...(o.description && { effect: o.description }) }
-  })
-  const q: OpenQuestion = { id: a.header, asks: a.question, options }
-  const rec = a.options.findIndex(o => RECOMMENDED.test(o.label))
-  if (rec >= 0) q.recommended = String(rec + 1)
-  const preview = a.options.find(o => o.preview)?.preview
-  if (preview) q.context = preview.replace(/\*\*|`/g, '')
-  return { q, labels: a.options.map(o => o.label) }
-}
-
-export type Asked = { q: OpenQuestion; labels: string[] }
-
-// flykit's own ask tool: what Claude sends, checked here because a mod tool's schema is advice only.
-export const ASK_TOOL = {
-  name: 'ask',
-  description:
-    'Ask the user one decision question. It shows in full in the flykit band above the prompt: options with their effects, your recommendation and why, and short context. ' +
-    'Prefer it over AskUserQuestion. After calling it, end your turn: the answer arrives as the user\'s next message. Never call it from a subagent.',
-  isDeferred: false,
-  inputSchema: {
-    type: 'object',
-    required: ['topic', 'question', 'options'],
-    properties: {
-      topic: { type: 'string', maxLength: 12, description: 'One or two words for the chip, e.g. "Push".' },
-      question: { type: 'string', description: 'The decision in one plain sentence, ending in "?".' },
-      options: {
-        type: 'array',
-        minItems: 2,
-        maxItems: 6,
-        description: 'As many as the decision really has, 2 to 6. Recommended one first.',
-        items: {
-          type: 'object',
-          required: ['label', 'effect'],
-          properties: {
-            label: { type: 'string', description: '1 to 5 words.' },
-            effect: { type: 'string', description: 'What happens for the user if picked: one short sentence.' },
-            recommended: { type: 'boolean' },
-          },
-        },
-      },
-      because: { type: 'string', description: 'Why the recommended option: one sentence.' },
-      context: { type: 'string', description: 'What is stuck and why it matters: a few short lines. Line breaks, "- " lists and "# " headings are kept.' },
-    },
-  },
-} as const
-
-const str = (v: unknown) => (typeof v === 'string' ? v.trim() : '')
-
-// The tool's input as a band question, or why it is refused.
-export function fromTool(input: Record<string, unknown>): Asked | string {
-  const options = Array.isArray(input.options) ? (input.options as Record<string, unknown>[]) : []
-  if (!str(input.question)) return 'question is empty'
-  if (options.length < 2 || options.length > 6) return 'give 2 to 6 options'
-  if (options.some(o => !str(o?.label))) return 'every option needs a label'
-  const q: OpenQuestion = {
-    id: str(input.topic).slice(0, 12) || 'Question',
-    asks: str(input.question),
-    options: options.map((o, i) => ({ key: String(i + 1), text: str(o.label), ...(str(o.effect) && { effect: str(o.effect) }) })),
-  }
-  const rec = options.findIndex(o => o.recommended === true)
-  if (rec >= 0) {
-    q.recommended = String(rec + 1)
-    if (str(input.because)) q.why = `${rec + 1} because: ${str(input.because)}`
-  }
-  if (str(input.context)) q.context = str(input.context)
-  return { q, labels: options.map(o => str(o.label)) }
-}
-
 export function drawQuestion(
   els: Pick<Elements[RenderSurface], 'Box' | 'Text' | 'Button'>,
   q: OpenQuestion,
@@ -140,10 +64,9 @@ export function drawQuestion(
   showContext: boolean,
   onAnswer: (o: Option) => void,
   onReply: () => void,
-  onClose?: () => void,
 ) {
   const { Box, Text, Button } = els
-  const head = questionHeader(q, open, columns, !!onClose)
+  const head = questionHeader(q, open, columns)
   const { labelWidth, rows } = questionRows(q, columns)
   const press = (r: QRow) => () => (r.option ? onAnswer(r.option) : onReply())
   const tone = (r: QRow) => (r.option && r.option.key === q.recommended ? 'accent' : 'neutral')
@@ -177,11 +100,6 @@ export function drawQuestion(
           ))}
         </Box>
         {head.count && <Text dimColor>{'  ' + head.count}</Text>}
-        {onClose && (
-          <Button key="close" plain onPress={onClose}>
-            {chip(Text, '✕', 'neutral', 'close')}
-          </Button>
-        )}
       </Box>
       {rows.map(r => (
         <Box key={`row-${r.key}`} gap={GAP} paddingLeft={INDENT}>

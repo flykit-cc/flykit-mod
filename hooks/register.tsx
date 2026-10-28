@@ -2,7 +2,7 @@ import type { EngineInterface, Register } from 'claude-code'
 
 import { answerQuestion, parseGitStatus, parseProgress, parseQuestions, type Cockpit, type Option } from './cockpit'
 import { drawCockpit } from './cockpit-view'
-import { ASK_TOOL, drawQuestion, fromAsk, fromTool, type Asked } from './question-view'
+import { drawQuestion } from './question-view'
 import { drawMeter, type FiveHourRow, type MeterView, type WeekRow } from './meter'
 import { livePids, parseSession, projectOf, track, type Peer, type PeerMemory, type SessionEntry } from './peers'
 import { parseModelCache, rollDay, weekMeter, type DayState } from './usage'
@@ -19,15 +19,6 @@ let cockpit: Cockpit | undefined
 let isHidden = false
 let isCockpitOpen = false
 let peerMemory: PeerMemory = {}
-// A question Claude asked, waiting in the band for a click. Saved per session, so a reload or restart keeps it.
-let ask: Asked | undefined
-let isAskLoaded = false
-// Set once the band drew in this process: no band (SDK, -p, a hidden band) means Claude's questions keep their dialog.
-let isBandDrawn = false
-
-const ASKED = 'Shown in the flykit band above the prompt, in full. The user answers there; the answer arrives as their next message.'
-const WAIT = 'End your turn now: no more tool calls and no assumed answer. The answer comes from the flykit band.'
-
 // afterReply: a reply came back, so empty rate limits mean 'no plan limits', not 'not yet'.
 async function refresh($: EngineInterface, afterReply = false) {
   const now = await $.clock.now()
@@ -131,49 +122,6 @@ async function answer($: EngineInterface, id: string, o: Option) {
   await refreshCockpit($)
 }
 
-// ponytail: one store key per session; a session that ends with a question open leaves its key behind.
-const askKey = async ($: EngineInterface) => 'ask:' + (await $.session.id())
-
-async function setAsk($: EngineInterface, a: Asked | undefined) {
-  ask = a
-  isAskLoaded = true
-  $.ui.invalidate('ui.render')
-  await askKey($)
-    .then(key => (a ? $.store.set(key, a) : $.store.delete(key)))
-    .catch(() => undefined)
-}
-
-const closeAsk = ($: EngineInterface) => void setAsk($, undefined)
-
-let isToolRegistered = false
-
-async function registerAsk($: EngineInterface) {
-  isToolRegistered = true
-  await $.tool.register(ASK_TOOL).catch(() => {
-    isToolRegistered = false
-  })
-}
-
-async function loadAsk($: EngineInterface) {
-  if (isAskLoaded) return
-  isAskLoaded = true
-  const saved = await askKey($).then(k => $.store.get(k)).catch(() => undefined)
-  ask ??= saved as Asked | undefined
-  if (ask) $.ui.invalidate('ui.render')
-}
-
-// Sends the picked label as the user's message; it queues behind a running turn.
-async function answerAsk($: EngineInterface, o: Option) {
-  const a = ask
-  if (!a) return
-  // asUser: the click is the person's answer, not a plugin's. Cleared only once it went through.
-  const sent = await $.prompt.submit({ text: `Answer to "${a.q.asks}": ${a.labels[Number(o.key) - 1]}`, asUser: true }).then(
-    r => !r.drop,
-    () => false,
-  )
-  if (sent && ask === a) await setAsk($, undefined)
-}
-
 // Prefixes the draft with the id instead of replacing it, so nothing typed is lost.
 async function reply($: EngineInterface, id: string) {
   const text = await readDraft($)
@@ -208,7 +156,6 @@ async function newSession($: EngineInterface) {
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     await $.command.register({ name: 'flykit', description: 'Show or hide the flykit band' })
-    await Promise.all([registerAsk($), loadAsk($)])
     await Promise.all([refresh($), refreshCockpit($)])
     $.clock.every(60_000, () => refresh($))
     $.clock.every(10_000, () => refreshCockpit($))
@@ -230,8 +177,6 @@ export const register: Register = on => {
   // `@<live peer name> text` typed by the user goes to that session, not to Claude.
   // Names may hold spaces, so match the longest live name, not a regex word.
   on('prompt.submit', async ($, e, next) => {
-    // A typed answer from the reply button ("<header>: …") settles the band's question; other messages leave it.
-    if (ask && !e.command && e.origin?.kind === 'composer' && e.text.startsWith(`${ask.q.id}:`)) await setAsk($, undefined)
     if (e.command || (e.origin && e.origin.kind !== 'composer') || !e.text.startsWith('@')) return next(e)
     const peers = await readPeers($, await $.clock.now())
     const named = peers.filter(p => e.text.startsWith('@' + p.name) && /\s/.test(e.text.charAt(p.name.length + 1)))
@@ -252,32 +197,6 @@ export const register: Register = on => {
     return refuse(`✗ not sent to ${peer.name}: ${reason}`)
   })
 
-  // Claude's own question dialog draws in the band instead: in full, where the dialog cuts long text.
-  // Several questions, multi-select, a subagent's or a plugin's $.ui.ask (no tool_use_id) keep the dialog.
-  on('tool.call', { tool: 'AskUserQuestion' }, async ($, e, next) => {
-    if (e.tool !== 'AskUserQuestion' || isHidden || !isBandDrawn || !e.tool_use_id || e.agentId) return next(e)
-    const [one, ...more] = e.questions
-    if (!one || more.length || one.multiSelect) return next(e)
-    await setAsk($, fromAsk(one))
-    return { result: { questions: e.questions, answers: {}, response: ASKED }, context: [WAIT] }
-  })
-
-  on('tool.call', { tool: /^mcp__flykit__ask$/ }, async ($, e) => {
-    if (e.agentId) return { deny: 'Subagents never ask the user: put the question in your report under "Questions raised".' }
-    if (isHidden || !isBandDrawn) return { deny: 'The flykit band is not shown: ask with AskUserQuestion instead.' }
-    const asked = fromTool(e as unknown as Record<string, unknown>)
-    if (typeof asked === 'string') return { deny: `Not shown: ${asked}.` }
-    await setAsk($, asked)
-    return { result: ASKED, context: [WAIT] }
-  })
-
-  // /clear and resume end the session but keep the process: the next one loads its own question.
-  on('session.end', async ($, e, next) => {
-    ask = undefined
-    isAskLoaded = false
-    return next(e)
-  })
-
   on('command.run', { command: 'flykit' }, async $ => {
     isHidden = !isHidden
     $.ui.invalidate('ui.render')
@@ -286,10 +205,6 @@ export const register: Register = on => {
 
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     if (isHidden || e.props.hasSurvey) return next(e)
-    isBandDrawn = true
-    // A hot reload may not rerun session.start; the first draw after it does this instead.
-    if (!isAskLoaded) void loadAsk($)
-    if (!isToolRegistered) void registerAsk($)
     const els = $.ui.resolve(e)
     const { Box } = els
     const columns = e.props.bodyColumns - 2 * PAD
@@ -300,10 +215,7 @@ export const register: Register = on => {
     const qs = cockpit?.questions === 'broken' ? undefined : cockpit?.questions
     const top = qs?.top
     const head = cockpit && drawCockpit(els, cockpit, columns, isCockpitOpen, toggle, p => void pickPeer($, p), () => void newSession($))
-    const a = ask
-    const question = a
-      ? drawQuestion(els, a.q, 1, columns, true, o => void answerAsk($, o), () => void reply($, a.q.id), () => closeAsk($))
-      : top && drawQuestion(els, top, qs!.open, columns, isCockpitOpen, o => void answer($, top.id, o), () => void reply($, top.id))
+    const question = top && drawQuestion(els, top, qs!.open, columns, isCockpitOpen, o => void answer($, top.id, o), () => void reply($, top.id))
     return (
       <Box flexDirection="column" paddingX={PAD} paddingTop={1}>
         {head}

@@ -9,13 +9,13 @@ const TWO = '## Q3\nstatus: open\nasks: Which key?\noptions: A: c; B: k\nrecomme
 const usage: SessionUsage = { startedAt: NOW, context: { percent: 10 } as SessionUsage['context'], rateLimits: [{ kind: 'seven_day', percentUsed: 10, resetsAt: RESET }] }
 const props = { hasSurvey: false, isWorking: false, maxRows: 10, bodyColumns: 100, scroll: { offset: 0, bodyRows: 10 }, view: {} } as never
 
-type World = { writes: { path: string; text: string }[]; submits: string[]; fills: string[]; dropSubmits?: boolean }
+type World = { writes: { path: string; text: string }[]; submits: string[]; fills: string[] }
 
 // files: paths relative to the cwd; fs.write updates them so the next read sees the answer.
-function world(on: On, files: Record<string, string>, denyWrite = false, draft = '', store: Record<string, unknown> = {}): World {
+function world(on: On, files: Record<string, string>, denyWrite = false, draft = ''): World {
   const w: World = { writes: [], submits: [], fills: [] }
   mock.clock(on, { now: NOW })
-  mock.store(on, store)
+  mock.store(on)
   on('session.id', () => ({ value: 's1' }))
   mock.env(on, {})
   on('session.measure', ($, e) => ({ changed: e.changed }))
@@ -32,7 +32,6 @@ function world(on: On, files: Record<string, string>, denyWrite = false, draft =
     return { value: undefined }
   })
   on('prompt.submit', ($, e) => {
-    if (w.dropSubmits) return { drop: 'busy' }
     w.submits.push(e.text)
     return { text: e.text }
   })
@@ -153,112 +152,4 @@ test('long options show in full, one per row, and a click on the text answers', 
   expect(await ui.find({ text: /…/ })).toBeUndefined()
   await ui.press({ key: 'answer-A-1' })
   expect(w.writes[0]!.text).toContain(`answer: A: ${long} (flykit band)`)
-})
-
-const ASK = {
-  tool: 'AskUserQuestion' as const,
-  tool_use_id: 'toolu_1',
-  questions: [
-    {
-      question: 'Publish the hosting page?',
-      header: 'Hosting',
-      multiSelect: false,
-      options: [
-        { label: 'Publish (Recommended)', description: 'Goes to Confluence now.', preview: 'WHAT IT SAYS\n- Database: PostgreSQL\n- Hosting: Hetzner\n- Plan B: dedicated servers\n- Login stays Microsoft Entra' },
-        { label: 'I want changes', description: 'Nothing is published.' },
-      ],
-    },
-  ],
-}
-
-test('a Claude question dialog draws in the band in full, and a click answers it', async ($, on) => {
-  const w = world(on, {})
-  const ui = await mount($)
-  const r = await $.tool.call(ASK)
-  expect('result' in r && r.result).toMatchObject({ answers: {} })
-  expect(await ui.find({ text: 'Publish the hosting page?' })).toBeDefined()
-  expect(await ui.find({ text: '- Login stays Microsoft Entra' })).toBeDefined()
-  await ui.press({ key: 'answer-1' })
-  expect(w.submits).toEqual(['Answer to "Publish the hosting page?": Publish (Recommended)'])
-  expect(await ui.find({ text: 'Publish the hosting page?' })).toBeUndefined()
-})
-
-test('several questions or multi-select keep the engine dialog', async ($, on) => {
-  world(on, {})
-  on('tool.call', () => ({ deny: 'engine dialog' }))
-  const ui = await mount($)
-  const q = ASK.questions[0]!
-  for (const questions of [[{ ...q, multiSelect: true }], [q, q]]) {
-    const r = await $.tool.call({ ...ASK, questions })
-    expect(r).toEqual({ deny: 'engine dialog' })
-  }
-  expect(await ui.find({ text: 'Publish the hosting page?' })).toBeUndefined()
-})
-
-test('band question: a plain message keeps it, a reply or ✕ closes it', async ($, on) => {
-  world(on, {})
-  const ui = await mount($)
-  await $.tool.call(ASK)
-  await $.prompt.submit({ text: 'what am I seeing?', origin: { kind: 'composer' }, wait: false })
-  expect(await ui.find({ text: 'Publish the hosting page?' })).toBeDefined()
-  await $.prompt.submit({ text: 'Hosting: publish but fix the title', origin: { kind: 'composer' }, wait: false })
-  expect(await ui.find({ text: 'Publish the hosting page?' })).toBeUndefined()
-  await $.tool.call(ASK)
-  await ui.press({ key: 'close' })
-  expect(await ui.find({ text: 'Publish the hosting page?' })).toBeUndefined()
-})
-
-const TOOL = {
-  tool: 'mcp__flykit__ask',
-  tool_use_id: 'toolu_2',
-  topic: 'Push',
-  question: 'What should I push?',
-  options: [
-    { label: 'Push flykit-mod', effect: 'GitHub gets band questions', recommended: true },
-    { label: 'Push + release', effect: 'other flow users get the rule' },
-    { label: 'Not yet', effect: 'nothing leaves this machine' },
-  ],
-  because: 'the release is the flow session job',
-}
-
-test('flykit ask tool: drawn in the band with effects and the reason, saved, a click answers', async ($, on) => {
-  const w = world(on, {})
-  const ui = await mount($)
-  const r = await $.tool.call(TOOL as never)
-  expect('result' in r).toBe(true)
-  expect(await ui.find({ text: 'What should I push?' })).toBeDefined()
-  expect(await ui.find({ text: /other flow users get the rule/ })).toBeDefined()
-  expect(await ui.find({ text: /★ 1 because: the release/ })).toBeDefined()
-  await ui.press({ key: 'answer-3' })
-  expect(w.submits).toEqual(['Answer to "What should I push?": Not yet'])
-})
-
-test('flykit ask tool: a subagent is refused, bad input is refused', async ($, on) => {
-  world(on, {})
-  await mount($)
-  expect(await $.tool.call({ ...TOOL, agentId: 'a1' } as never)).toEqual({ deny: 'Subagents never ask the user: put the question in your report under "Questions raised".' })
-  expect(await $.tool.call({ ...TOOL, options: [] } as never)).toEqual({ deny: 'Not shown: give 2 to 6 options.' })
-})
-
-test('a saved question comes back after a reload', async ($, on) => {
-  const saved = { q: { id: 'Push', asks: 'Saved one?', options: [{ key: '1', text: 'yes' }, { key: '2', text: 'no' }] }, labels: ['yes', 'no'] }
-  world(on, {}, false, '', { 'ask:s1': saved })
-  const ui = await mount($)
-  expect(await ui.find({ text: 'Saved one?' })).toBeDefined()
-})
-
-test('flykit ask tool: refused while the band is hidden, so Claude never waits on an unseen question', async ($, on) => {
-  world(on, {})
-  await mount($)
-  await $.command.run({ command: 'flykit' } as never)
-  expect(await $.tool.call(TOOL as never)).toEqual({ deny: 'The flykit band is not shown: ask with AskUserQuestion instead.' })
-})
-
-test('a failed send keeps the question in the band', async ($, on) => {
-  const w = world(on, {})
-  w.dropSubmits = true
-  const ui = await mount($)
-  await $.tool.call(TOOL as never)
-  await ui.press({ key: 'answer-1' })
-  expect(await ui.find({ text: 'What should I push?' })).toBeDefined()
 })
