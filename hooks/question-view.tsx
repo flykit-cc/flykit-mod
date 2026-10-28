@@ -12,10 +12,10 @@ const REPLY = '✎ reply'
 const STAR = ' ★'
 
 // id: the warning chip's text; lines: the full question, wrapped beside the chip and the count.
-export function questionHeader(q: OpenQuestion, open: number, columns: number): { id: string; lines: string[]; count?: string } {
+export function questionHeader(q: OpenQuestion, open: number, columns: number, close = false): { id: string; lines: string[]; count?: string } {
   const id = `? ${q.id}`
   const count = open > 1 ? `1 of ${open}` : undefined
-  const room = columns - chipWidth(id) - 1 - (count ? count.length + 2 : 0)
+  const room = columns - chipWidth(id) - 1 - (count ? count.length + 2 : 0) - (close ? chipWidth('✕') : 0)
   return { id, lines: wrap(q.asks, room), ...(count && { count }) }
 }
 
@@ -68,9 +68,10 @@ export function drawQuestion(
   showContext: boolean,
   onAnswer: (o: Option) => void,
   onReply: () => void,
+  onClose?: () => void,
 ) {
   const { Box, Text, Button } = els
-  const head = questionHeader(q, open, columns)
+  const head = questionHeader(q, open, columns, !!onClose)
   const { inline, rows } = questionRows(q, columns)
   const press = (r: QRow) => () => (r.option ? onAnswer(r.option) : onReply())
   const tone = (r: QRow) => (r.option && r.option.key === q.recommended ? 'accent' : 'neutral')
@@ -101,8 +102,12 @@ export function drawQuestion(
           ))}
         </Box>
         {head.count && <Text dimColor>{'  ' + head.count}</Text>}
+        {onClose && (
+          <Button key="close" plain onPress={onClose}>
+            {chip(Text, '✕', 'neutral', 'close')}
+          </Button>
+        )}
       </Box>
-      {showContext && q.context && dim('ctx', q.context)}
       {inline ? (
         <Box gap={GAP} paddingLeft={INDENT}>
           {rows.map(button)}
@@ -122,6 +127,7 @@ export function drawQuestion(
         ))
       )}
       {q.why && dim('why', '★ ' + q.why)}
+      {showContext && q.context && <Box marginTop={1}>{dim('ctx', q.context)}</Box>}
     </Box>
   )
 }

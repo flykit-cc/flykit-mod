@@ -128,12 +128,16 @@ async function answer($: EngineInterface, id: string, o: Option) {
   await refreshCockpit($)
 }
 
+function closeAsk($: EngineInterface) {
+  ask = undefined
+  $.ui.invalidate('ui.render')
+}
+
 // Sends the picked label as the user's message; it queues behind a running turn.
 async function answerAsk($: EngineInterface, o: Option) {
   const a = ask
   if (!a) return
-  ask = undefined
-  $.ui.invalidate('ui.render')
+  closeAsk($)
   await $.prompt.submit({ text: `Answer to "${a.q.asks}": ${a.labels[Number(o.key) - 1]}` }).catch(() => undefined)
 }
 
@@ -192,8 +196,8 @@ export const register: Register = on => {
   // `@<live peer name> text` typed by the user goes to that session, not to Claude.
   // Names may hold spaces, so match the longest live name, not a regex word.
   on('prompt.submit', async ($, e, next) => {
-    // A typed message answers or moves past the band's question.
-    if (ask && !e.command && e.origin?.kind === 'composer') {
+    // A typed answer from the reply button ("<header>: …") settles the band's question; other messages leave it.
+    if (ask && !e.command && e.origin?.kind === 'composer' && e.text.startsWith(`${ask.q.id}:`)) {
       ask = undefined
       $.ui.invalidate('ui.render')
     }
@@ -247,7 +251,7 @@ export const register: Register = on => {
     const top = qs?.top
     const head = cockpit && drawCockpit(els, cockpit, columns, isCockpitOpen, toggle, p => void pickPeer($, p), () => void newSession($))
     const question = ask
-      ? drawQuestion(els, ask.q, 1, columns, true, o => void answerAsk($, o), () => void reply($, ask!.q.id))
+      ? drawQuestion(els, ask.q, 1, columns, true, o => void answerAsk($, o), () => void reply($, ask!.q.id), () => closeAsk($))
       : top && drawQuestion(els, top, qs!.open, columns, isCockpitOpen, o => void answer($, top.id, o), () => void reply($, top.id))
     return (
       <Box flexDirection="column" paddingX={PAD} paddingTop={1}>

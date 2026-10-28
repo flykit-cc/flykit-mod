@@ -192,3 +192,16 @@ test('several questions or multi-select keep the engine dialog', async ($, on) =
   }
   expect(await ui.find({ text: 'Publish the hosting page?' })).toBeUndefined()
 })
+
+test('band question: a plain message keeps it, a reply or ✕ closes it', async ($, on) => {
+  world(on, {})
+  const ui = await mount($)
+  await $.tool.call(ASK)
+  await $.prompt.submit({ text: 'what am I seeing?', origin: { kind: 'composer' }, wait: false })
+  expect(await ui.find({ text: 'Publish the hosting page?' })).toBeDefined()
+  await $.prompt.submit({ text: 'Hosting: publish but fix the title', origin: { kind: 'composer' }, wait: false })
+  expect(await ui.find({ text: 'Publish the hosting page?' })).toBeUndefined()
+  await $.tool.call(ASK)
+  await ui.press({ key: 'close' })
+  expect(await ui.find({ text: 'Publish the hosting page?' })).toBeUndefined()
+})
