@@ -9,7 +9,7 @@ const TWO = '## Q3\nstatus: open\nasks: Which key?\noptions: A: c; B: k\nrecomme
 const usage: SessionUsage = { startedAt: NOW, context: { percent: 10 } as SessionUsage['context'], rateLimits: [{ kind: 'seven_day', percentUsed: 10, resetsAt: RESET }] }
 const props = { hasSurvey: false, isWorking: false, maxRows: 10, bodyColumns: 100, scroll: { offset: 0, bodyRows: 10 }, view: {} } as never
 
-type World = { writes: { path: string; text: string }[]; submits: string[]; fills: string[] }
+type World = { writes: { path: string; text: string }[]; submits: string[]; fills: string[]; dropSubmits?: boolean }
 
 // files: paths relative to the cwd; fs.write updates them so the next read sees the answer.
 function world(on: On, files: Record<string, string>, denyWrite = false, draft = '', store: Record<string, unknown> = {}): World {
@@ -32,6 +32,7 @@ function world(on: On, files: Record<string, string>, denyWrite = false, draft =
     return { value: undefined }
   })
   on('prompt.submit', ($, e) => {
+    if (w.dropSubmits) return { drop: 'busy' }
     w.submits.push(e.text)
     return { text: e.text }
   })
@@ -244,4 +245,20 @@ test('a saved question comes back after a reload', async ($, on) => {
   world(on, {}, false, '', { 'ask:s1': saved })
   const ui = await mount($)
   expect(await ui.find({ text: 'Saved one?' })).toBeDefined()
+})
+
+test('flykit ask tool: refused while the band is hidden, so Claude never waits on an unseen question', async ($, on) => {
+  world(on, {})
+  await mount($)
+  await $.command.run({ command: 'flykit' } as never)
+  expect(await $.tool.call(TOOL as never)).toEqual({ deny: 'The flykit band is not shown: ask with AskUserQuestion instead.' })
+})
+
+test('a failed send keeps the question in the band', async ($, on) => {
+  const w = world(on, {})
+  w.dropSubmits = true
+  const ui = await mount($)
+  await $.tool.call(TOOL as never)
+  await ui.press({ key: 'answer-1' })
+  expect(await ui.find({ text: 'What should I push?' })).toBeDefined()
 })

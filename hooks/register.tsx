@@ -22,6 +22,8 @@ let peerMemory: PeerMemory = {}
 // A question Claude asked, waiting in the band for a click. Saved per session, so a reload or restart keeps it.
 let ask: Asked | undefined
 let isAskLoaded = false
+// Set once the band drew in this process: no band (SDK, -p, a hidden band) means Claude's questions keep their dialog.
+let isBandDrawn = false
 
 const ASKED = 'Shown in the flykit band above the prompt, in full. The user answers there; the answer arrives as their next message.'
 const WAIT = 'End your turn now: no more tool calls and no assumed answer. The answer comes from the flykit band.'
@@ -156,7 +158,7 @@ async function loadAsk($: EngineInterface) {
   if (isAskLoaded) return
   isAskLoaded = true
   const saved = await askKey($).then(k => $.store.get(k)).catch(() => undefined)
-  ask = (saved as Asked | undefined) ?? ask
+  ask ??= saved as Asked | undefined
   if (ask) $.ui.invalidate('ui.render')
 }
 
@@ -164,8 +166,12 @@ async function loadAsk($: EngineInterface) {
 async function answerAsk($: EngineInterface, o: Option) {
   const a = ask
   if (!a) return
-  await setAsk($, undefined)
-  await $.prompt.submit({ text: `Answer to "${a.q.asks}": ${a.labels[Number(o.key) - 1]}` }).catch(() => undefined)
+  // asUser: the click is the person's answer, not a plugin's. Cleared only once it went through.
+  const sent = await $.prompt.submit({ text: `Answer to "${a.q.asks}": ${a.labels[Number(o.key) - 1]}`, asUser: true }).then(
+    r => !r.drop,
+    () => false,
+  )
+  if (sent && ask === a) await setAsk($, undefined)
 }
 
 // Prefixes the draft with the id instead of replacing it, so nothing typed is lost.
@@ -249,7 +255,7 @@ export const register: Register = on => {
   // Claude's own question dialog draws in the band instead: in full, where the dialog cuts long text.
   // Several questions, multi-select, a subagent's or a plugin's $.ui.ask (no tool_use_id) keep the dialog.
   on('tool.call', { tool: 'AskUserQuestion' }, async ($, e, next) => {
-    if (e.tool !== 'AskUserQuestion' || isHidden || !e.tool_use_id || e.agentId) return next(e)
+    if (e.tool !== 'AskUserQuestion' || isHidden || !isBandDrawn || !e.tool_use_id || e.agentId) return next(e)
     const [one, ...more] = e.questions
     if (!one || more.length || one.multiSelect) return next(e)
     await setAsk($, fromAsk(one))
@@ -258,10 +264,18 @@ export const register: Register = on => {
 
   on('tool.call', { tool: /^mcp__flykit__ask$/ }, async ($, e) => {
     if (e.agentId) return { deny: 'Subagents never ask the user: put the question in your report under "Questions raised".' }
+    if (isHidden || !isBandDrawn) return { deny: 'The flykit band is not shown: ask with AskUserQuestion instead.' }
     const asked = fromTool(e as unknown as Record<string, unknown>)
     if (typeof asked === 'string') return { deny: `Not shown: ${asked}.` }
     await setAsk($, asked)
     return { result: ASKED, context: [WAIT] }
+  })
+
+  // /clear and resume end the session but keep the process: the next one loads its own question.
+  on('session.end', async ($, e, next) => {
+    ask = undefined
+    isAskLoaded = false
+    return next(e)
   })
 
   on('command.run', { command: 'flykit' }, async $ => {
@@ -272,6 +286,7 @@ export const register: Register = on => {
 
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     if (isHidden || e.props.hasSurvey) return next(e)
+    isBandDrawn = true
     // A hot reload may not rerun session.start; the first draw after it does this instead.
     if (!isAskLoaded) void loadAsk($)
     if (!isToolRegistered) void registerAsk($)
@@ -285,8 +300,9 @@ export const register: Register = on => {
     const qs = cockpit?.questions === 'broken' ? undefined : cockpit?.questions
     const top = qs?.top
     const head = cockpit && drawCockpit(els, cockpit, columns, isCockpitOpen, toggle, p => void pickPeer($, p), () => void newSession($))
-    const question = ask
-      ? drawQuestion(els, ask.q, 1, columns, true, o => void answerAsk($, o), () => void reply($, ask!.q.id), () => closeAsk($))
+    const a = ask
+    const question = a
+      ? drawQuestion(els, a.q, 1, columns, true, o => void answerAsk($, o), () => void reply($, a.q.id), () => closeAsk($))
       : top && drawQuestion(els, top, qs!.open, columns, isCockpitOpen, o => void answer($, top.id, o), () => void reply($, top.id))
     return (
       <Box flexDirection="column" paddingX={PAD} paddingTop={1}>
