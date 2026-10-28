@@ -143,6 +143,15 @@ async function setAsk($: EngineInterface, a: Asked | undefined) {
 
 const closeAsk = ($: EngineInterface) => void setAsk($, undefined)
 
+let isToolRegistered = false
+
+async function registerAsk($: EngineInterface) {
+  isToolRegistered = true
+  await $.tool.register(ASK_TOOL).catch(() => {
+    isToolRegistered = false
+  })
+}
+
 async function loadAsk($: EngineInterface) {
   if (isAskLoaded) return
   isAskLoaded = true
@@ -193,8 +202,7 @@ async function newSession($: EngineInterface) {
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     await $.command.register({ name: 'flykit', description: 'Show or hide the flykit band' })
-    await $.tool.register(ASK_TOOL).catch(() => undefined)
-    await loadAsk($)
+    await Promise.all([registerAsk($), loadAsk($)])
     await Promise.all([refresh($), refreshCockpit($)])
     $.clock.every(60_000, () => refresh($))
     $.clock.every(10_000, () => refreshCockpit($))
@@ -264,7 +272,9 @@ export const register: Register = on => {
 
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     if (isHidden || e.props.hasSurvey) return next(e)
+    // A hot reload may not rerun session.start; the first draw after it does this instead.
     if (!isAskLoaded) void loadAsk($)
+    if (!isToolRegistered) void registerAsk($)
     const els = $.ui.resolve(e)
     const { Box } = els
     const columns = e.props.bodyColumns - 2 * PAD
